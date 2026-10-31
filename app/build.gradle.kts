@@ -8,10 +8,24 @@ android {
         applicationId = "pt.remotephotobridge"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.0-alpha2"
+        versionCode = 3
+        versionName = "1.0.0-alpha3"
+    }
+    // This is a development-only signature. Production releases must use
+    // a secure private signing key, not the public ALPHA test keystore.
+    signingConfigs {
+        create("alphaTest") {
+            storeFile = file("signing/alpha-test-signing.p12")
+            storeType = "PKCS12"
+            storePassword = "PhotoBridgeAlphaTestOnly2026"
+            keyAlias = "photobridge-alpha"
+            keyPassword = "PhotoBridgeAlphaTestOnly2026"
+        }
     }
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("alphaTest")
+        }
         release {
             isMinifyEnabled = false
         }
