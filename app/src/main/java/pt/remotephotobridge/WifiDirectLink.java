@@ -349,6 +349,13 @@ final class WifiDirectLink {
                 }
             }
         });
+        manager.requestPeers(channel, list -> {
+            if (list == null) return;
+            listener.message("Peers detetados pelo Android: " + list.getDeviceList().size() + ".");
+            for (WifiP2pDevice peer : list.getDeviceList()) {
+                listener.message("Peer: " + peer.deviceName + " | estado: " + peerStatus(peer.status));
+            }
+        });
     }
 
     private boolean hasWifiPermission() {
