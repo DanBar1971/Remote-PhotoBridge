@@ -51,9 +51,16 @@ final class WifiDirectLink {
         @Override public void run() {
             monitorScheduled = false;
             if (SystemClock.elapsedRealtime() > monitoringUntil) {
-                if (connecting) listener.message("Sem confirmação do Android após 90 segundos. Consulta o estado da ligação; se continuar pendente, reinicia nos dois telemóveis.");
-                // Do not clear connecting just because the platform has not completed the
-                // negotiation. Android may be showing a Wi-Fi Direct confirmation dialog.
+                monitoringUntil = 0;
+                if (connecting && !wasConnected) {
+                    connecting = false;
+                    listener.message("Falha ao ligar: o Android não confirmou o grupo Wi-Fi Direct. Podes tocar novamente no outro telemóvel, ou tentar iniciar do lado oposto.");
+                    if (hasWifiPermission())
+                        manager.cancelConnect(channel, new WifiP2pManager.ActionListener() {
+                            @Override public void onSuccess() { }
+                            @Override public void onFailure(int ignored) { }
+                        });
+                }
                 return;
             }
             checkConnection();
