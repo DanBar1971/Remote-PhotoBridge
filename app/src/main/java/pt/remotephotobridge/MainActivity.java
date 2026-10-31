@@ -7,8 +7,10 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pInfo;
 import android.os.Build;
@@ -16,6 +18,7 @@ import android.os.Bundle;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -29,6 +32,8 @@ import android.widget.Toast;
 import java.net.InetAddress;
 import java.security.SecureRandom;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Locale;
 
 /**
@@ -55,6 +60,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
     private boolean accepting;
     private TextView logView, pinView, connectionView;
     private LinearLayout discoveredList;
+    private String lastPeerSignature = "";
     private EditText pinEntry;
     private Runnable pendingPermissionAction;
     private String pendingPermissionType;
@@ -150,6 +156,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
 
     private void render() {
         log.setLength(0);
+        lastPeerSignature = "";
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(BG);
@@ -361,6 +368,14 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
     @Override public void peers(List<WifiP2pDevice> devices) {
         runOnUiThread(() -> {
             if (role == null || discoveredList == null) return;
+            // Refresh only when peers actually change. Recreating buttons on
+            // every Wi-Fi peer broadcast can swallow touch-up and make taps fail.
+            List<String> addresses = new ArrayList<>();
+            for (WifiP2pDevice d : devices) addresses.add(d.deviceAddress + "/" + d.deviceName);
+            Collections.sort(addresses);
+            String signature = android.text.TextUtils.join(";", addresses);
+            if (signature.equals(lastPeerSignature) && discoveredList.getChildCount() > 0) return;
+            lastPeerSignature = signature;
             discoveredList.removeAllViews();
             if (devices.isEmpty()) {
                 discoveredList.addView(sub("Não há outros equipamentos Wi-Fi Direct visíveis. Faz nova pesquisa nos dois telemóveis e confirma a Localização ligada."));
@@ -447,12 +462,18 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(prominent ? ACCENT : Color.rgb(43, 62, 83));
         bg.setCornerRadius(dp(12));
-        b.setBackground(bg);
+        // Visible press feedback, including on devices where a plain
+        // GradientDrawable doesn't show that the button was touched.
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.argb(100, 255, 255, 255)), bg, null));
+        b.setClickable(true);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
         lp.topMargin = dp(12);
         lp.bottomMargin = dp(4);
         b.setLayoutParams(lp);
-        b.setOnClickListener(v -> click.run());
+        b.setOnClickListener(v -> {
+            v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            click.run();
+        });
         return b;
     }
 
