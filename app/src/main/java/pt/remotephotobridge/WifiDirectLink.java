@@ -46,6 +46,11 @@ final class WifiDirectLink {
                 case WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION:
                     checkConnection();
                     break;
+                case WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION:
+                    int discovery = intent.getIntExtra(WifiP2pManager.EXTRA_DISCOVERY_STATE, -1);
+                    if (discovery == WifiP2pManager.WIFI_P2P_DISCOVERY_STARTED)
+                        listener.message("Descoberta Wi-Fi Direct ativa.");
+                    break;
             }
         }
     };
@@ -65,6 +70,7 @@ final class WifiDirectLink {
         f.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);
         f.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
         f.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);
+        f.addAction(WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION);
         if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, f, Context.RECEIVER_EXPORTED);
         else context.registerReceiver(receiver, f);
         registered = true;
@@ -81,14 +87,23 @@ final class WifiDirectLink {
     @SuppressLint("MissingPermission")
     void createReceiverGroup() {
         if (!hasWifiPermission()) { listener.message("Autoriza a permissão Wi-Fi primeiro."); return; }
-        manager.createGroup(channel, action("Grupo Wi-Fi Direct pronto. Aguarda ligação do secundário."));
+        manager.createGroup(channel, action("Modo compatibilidade: grupo Wi-Fi Direct criado. Procura novamente no Secundário."));
     }
 
     @SuppressLint("MissingPermission")
     void discover() {
         if (!hasWifiPermission()) { listener.message("Autoriza a permissão Wi-Fi primeiro."); return; }
-        listener.message("A procurar telemóveis próximos...");
-        manager.discoverPeers(channel, action("Pesquisa Wi-Fi Direct iniciada."));
+        listener.message("A procurar dispositivos Wi-Fi Direct próximos...");
+        manager.discoverPeers(channel, new WifiP2pManager.ActionListener() {
+            @Override public void onSuccess() {
+                listener.message("Pesquisa Wi-Fi Direct iniciada. Mantém a aplicação aberta nos dois telemóveis.");
+                requestPeers();
+            }
+            @Override public void onFailure(int reason) {
+                listener.message("Falhou a pesquisa Wi-Fi Direct: " + errorReason(reason)
+                        + ". Confirma o Wi-Fi e a Localização ativos.");
+            }
+        });
     }
 
     @SuppressLint("MissingPermission")
@@ -97,17 +112,20 @@ final class WifiDirectLink {
         manager.requestPeers(channel, list -> {
             Collection<WifiP2pDevice> all = list.getDeviceList();
             listener.peers(new ArrayList<>(all));
+            listener.message("Dispositivos Wi-Fi Direct visíveis: " + all.size() + ".");
         });
     }
 
     @SuppressLint("MissingPermission")
-    void connectTo(WifiP2pDevice device) {
+    void connectTo(WifiP2pDevice device, boolean principal) {
         if (!hasWifiPermission()) { listener.message("Autoriza a permissão Wi-Fi primeiro."); return; }
         WifiP2pConfig cfg = new WifiP2pConfig();
         cfg.deviceAddress = device.deviceAddress;
-        cfg.groupOwnerIntent = 0; // Principal already owns a group; secondary must join it.
-        listener.message("A ligar a " + device.deviceName + "...");
-        manager.connect(channel, cfg, action("Pedido de ligação enviado. Aceita o emparelhamento, se solicitado."));
+        // The receiving phone MUST be the group owner to keep photo transfer one-way.
+        // Wi-Fi P2P negotiates ownership; these are preference values, not guarantees.
+        cfg.groupOwnerIntent = principal ? 15 : 0;
+        listener.message("A ligar a " + device.deviceName + " (via Wi-Fi Direct)...");
+        manager.connect(channel, cfg, action("Pedido de ligação enviado. Aceita o convite Wi-Fi Direct no outro telemóvel, se aparecer."));
     }
 
     @SuppressLint("MissingPermission")
@@ -129,10 +147,18 @@ final class WifiDirectLink {
                 : context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
+    private String errorReason(int reason) {
+        switch (reason) {
+            case WifiP2pManager.P2P_UNSUPPORTED: return "não suportado";
+            case WifiP2pManager.BUSY: return "Android ocupado (BUSY)";
+            default: return "código " + reason;
+        }
+    }
+
     private WifiP2pManager.ActionListener action(String successMessage) {
         return new WifiP2pManager.ActionListener() {
             @Override public void onSuccess() { listener.message(successMessage); checkConnection(); }
-            @Override public void onFailure(int reason) { listener.message("Erro Wi-Fi Direct (código " + reason + "). Confirma Wi-Fi e Localização ligados."); }
+            @Override public void onFailure(int reason) { listener.message("Erro Wi-Fi Direct (" + errorReason(reason) + "). Confirma Wi-Fi e Localização ligados."); }
         };
     }
 }
