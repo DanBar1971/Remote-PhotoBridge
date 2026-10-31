@@ -208,7 +208,12 @@ final class NearbyPhotoLink {
             releaseSenderFile();
             listener.state("CONCLUÍDO: " + saved + " novas na galeria do Principal; " +
                     skipped + " já existentes (" + total + " selecionadas).");
-            sendControl(json("finish").put("count", total).put("saved", saved).put("skipped", skipped));
+            try {
+                sendControl(json("finish").put("count", total)
+                        .put("saved", saved).put("skipped", skipped));
+            } catch (Exception e) {
+                listener.state("A sincronização terminou, mas falhou o resumo: " + e.getMessage());
+            }
             return;
         }
         final PhotoTransport.Photo p = queue.get(position);
