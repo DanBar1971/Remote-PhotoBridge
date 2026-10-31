@@ -2,7 +2,7 @@
 
 **Android · Wi-Fi Direct · offline · fotografias num único sentido**
 
-Projeto Android independente, v1.0.0-alpha6 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
+Projeto Android independente, v1.0.0-alpha7 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
 
 | Papel | Pode fazer | Nunca faz |
 |---|---|---|
@@ -25,7 +25,7 @@ Não precisa de Internet, cartão SIM, dados móveis, conta Google, router, Blue
 2. Abrir em cada um e escolher o papel persistente: **PRINCIPAL** ou **SECUNDÁRIO**.
 3. Em ambos os telemóveis, ligar o **Wi-Fi e a Localização do Android**. O Bluetooth não é necessário.
 4. No Principal tocar **ATIVAR RECEÇÃO**. O Android começa a criar um grupo Wi-Fi Direct e este passa a aguardar o Secundário. O PIN temporário não significa que exista uma ligação.
-5. No **Secundário**, tocar **PROCURAR DISPOSITIVOS**, selecionar **LIGAR A: [nome do Principal]** (não escolher TVs) e aceitar o convite Wi-Fi Direct no Principal, se aparecer. O Principal já tem o grupo criado e não precisa de procurar o Secundário.
+5. **Só no Secundário**, tocar **PROCURAR DISPOSITIVOS**, selecionar **LIGAR AO PRINCIPAL: [nome do Principal]** (não escolher TVs), uma vez, e aceitar o convite Wi-Fi Direct no Principal, se aparecer. O Principal já tem o grupo criado e NÃO deve iniciar um segundo pedido em simultâneo.
 6. Aguardar o estado **LIGADO** em ambos; a lista dos dispositivos já não deve desaparecer durante o toque.
 7. No Secundário, introduzir o PIN e tocar primeiro em **TESTAR COMUNICAÇÃO (SEM ENVIAR FOTOS)**. Se indicar TESTE OK, tocar em **SINCRONIZAR FOTOGRAFIAS**.
 8. Se a negociação falhar, tocar **DESLIGAR / REINICIAR LIGAÇÃO** nos dois e repetir. No Principal existe ainda **MODO COMPATIBILIDADE · CRIAR GRUPO**, para testar em telemóveis difíceis.
@@ -86,3 +86,16 @@ Ainda não definida (projeto inicial, sem licença externa selecionada).
 - **alpha2:** substitui a janela de seleção inicial por ecrã completo.
 
 **Importante sobre atualização:** o GitHub Actions usa uma chave de debug temporária diferente em cada compilação. Por enquanto, é necessário desinstalar a versão alpha anterior antes de instalar uma nova. Uma assinatura fixa protegida por GitHub Secret está planeada, mas **não está ativa**; evita assumir atualizações por cima da aplicação atual. Desinstalar esta app não apaga as imagens da galeria, mas limpa as suas definições e histórico interno.
+
+## Diagnóstico AP vs Wi-Fi Direct (alpha7)
+
+Dois telemóveis em pontos de acesso diferentes **não deveriam precisar de estar na mesma WLAN** para usar Wi-Fi Direct, mas algumas implementações Wi-Fi não suportam bem ligação simultânea a um router e a um grupo P2P. Para isolar o problema:
+
+1. Em ambos: **Definições > Wi-Fi**, terminar temporariamente a associação ao router/AP e impedir que o telemóvel se ligue automaticamente a essa rede. **Manter o rádio Wi-Fi ligado** e Localização ativa.
+2. Em ambos: DESLIGAR/REINICIAR LIGAÇÃO, aguardar a confirmação e manter a app aberta.
+3. No Principal: ATIVAR RECEÇÃO (cria o grupo, não pesquisar nem tocar em LIGAR).
+4. No Secundário: PROCURAR DISPOSITIVOS e LIGAR AO PRINCIPAL **uma única vez**. Aceitar a janela nativa do Android se aparecer.
+5. Nos dois, RECOLHER DIAGNÓSTICO DO WI-FI, depois COPIAR DIAGNÓSTICO DA LIGAÇÃO para inspecionar o resultado. Se o Principal tiver zero clientes e o Secundário 'convite pendente', o bloqueio está na negociação Android P2P, não no PIN ou na galeria.
+6. No fim, voltar a associar cada telemóvel ao seu ponto de acesso normal.
+
+- **alpha7:** remove ligação iniciada no Principal para impedir pedidos concorrentes; distingue explicitamente Wi-Fi normal e Wi-Fi Direct no diagnóstico.
