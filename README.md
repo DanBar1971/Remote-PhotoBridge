@@ -2,7 +2,7 @@
 
 **Android · Wi-Fi Direct · offline · fotografias num único sentido**
 
-Projeto Android independente, v1.0.0-alpha9 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
+Projeto Android independente, v1.0.0-alpha10 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
 
 | Papel | Pode fazer | Nunca faz |
 |---|---|---|
@@ -118,3 +118,16 @@ A versão alpha6–alpha8 fazia o Principal chamar `createGroup()` antes de o Se
 - Se os dois Androids ainda não se virem, copiar diagnóstico de ambos após tentativa com Wi-Fi e Localização ligados, e sem associação aos routers. Identificar se `discoverPeers()` é iniciado, lista de pares e estado do grupo.
 
 Não se afirma compatibilidade física sem teste real no Redmi e no segundo Android.
+
+## alpha10 — emparelhamento simples
+
+- Principal: tocar em **ATIVAR RECEÇÃO E PROCURAR**. Se surgir o Secundário, pode tocar **LIGAR: Android_6950**. Isto inicia apenas o emparelhamento; o Principal continua sem poder enviar fotografias.
+- Secundário: tocar em **PROCURAR TELEMÓVEL PRINCIPAL** e **LIGAR: Redmi Note 13 Pro**, caso este seja o dispositivo que inicia a ligação.
+- **Apenas um dos dois telemóveis deve tocar em LIGAR por tentativa**. O outro aguarda o pedido do Android.
+- A lista conserva os últimos dispositivos encontrados durante atualizações temporariamente vazias. TVs deixam de aparecer nos botões.
+- Após a confirmação do grupo, o Secundário introduz o PIN e toca em **ENVIAR FOTOGRAFIAS**.
+- Diagnóstico e reinício estão em **DETALHES E DIAGNÓSTICO**, fora da interface normal.
+- Listener Wi-Fi Direct continua registado durante pedidos nativos de emparelhamento.
+- Certificado privado fixo desde alpha8, instalar alpha10 **por cima** da alpha9 sem desinstalar.
+
+A ligação real ainda não foi validada; o botão de ligar inicia a negociação mas não prova que o grupo Wi-Fi Direct esteja estabelecido.

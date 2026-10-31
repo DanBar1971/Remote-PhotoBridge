@@ -51,9 +51,16 @@ final class WifiDirectLink {
         @Override public void run() {
             monitorScheduled = false;
             if (SystemClock.elapsedRealtime() > monitoringUntil) {
-                if (connecting) listener.message("Sem confirmação do Android após 90 segundos. Consulta o estado da ligação; se continuar pendente, reinicia nos dois telemóveis.");
-                // Do not clear connecting just because the platform has not completed the
-                // negotiation. Android may be showing a Wi-Fi Direct confirmation dialog.
+                monitoringUntil = 0;
+                if (connecting && !wasConnected) {
+                    connecting = false;
+                    listener.message("Falha ao ligar: o Android não confirmou o grupo Wi-Fi Direct. Podes tocar novamente no outro telemóvel, ou tentar iniciar do lado oposto.");
+                    if (hasWifiPermission())
+                        manager.cancelConnect(channel, new WifiP2pManager.ActionListener() {
+                            @Override public void onSuccess() { }
+                            @Override public void onFailure(int ignored) { }
+                        });
+                }
                 return;
             }
             checkConnection();
@@ -158,18 +165,19 @@ final class WifiDirectLink {
     }
 
     @SuppressLint("MissingPermission")
-    void connectTo(WifiP2pDevice device) {
+    void connectTo(WifiP2pDevice device, boolean principal) {
         if (!hasWifiPermission()) { listener.message("Permissão Wi-Fi Direct em falta."); return; }
         if (connecting) { listener.message("Aguarda o pedido de ligação anterior ou usa Desligar/Reiniciar ligação."); return; }
         if (wasConnected) { listener.message("Já existe uma ligação. Usa Desligar antes de emparelhar outro dispositivo."); return; }
         connecting = true;
         tryingPeer = device.deviceName == null ? "Android" : device.deviceName;
-        listener.message("A iniciar ligação a " + tryingPeer + ". Confirma o convite que aparecer no outro telemóvel.");
+        listener.message((principal ? "Principal" : "Secundário") +
+                ": pedido de ligação a " + tryingPeer + ". Não carregues em ligar no outro telemóvel.");
         WifiP2pConfig config = new WifiP2pConfig();
         config.deviceAddress = device.deviceAddress;
-        // Only the secondary starts negotiation. The Principal has an existing
-        // group and must remain its owner; two simultaneous connect calls race.
-        config.groupOwnerIntent = 0;
+        // Photo receiver and P2P group owner are distinct roles. Prefer Principal
+        // as group owner; either phone may initiate exactly one pairing request.
+        config.groupOwnerIntent = principal ? 15 : 0;
         config.wps.setup = WpsInfo.PBC;
         // Stop discovery before pairing. Concurrent discovery can cause BUSY on some OEMs.
         watchForConnection();
