@@ -1,15 +1,15 @@
 import java.util.Properties
 
+plugins {
+    id("com.android.application")
+}
+
 // The private signing bundle is restored from a protected GitHub Actions Secret.
 // No private signing keys or credentials are stored in this public repository.
 val alphaSigningFile = rootProject.file("local-signing.properties")
 val alphaSigning = Properties()
 if (alphaSigningFile.isFile) {
     alphaSigningFile.inputStream().use { alphaSigning.load(it) }
-}
-
-plugins {
-    id("com.android.application")
 }
 android {
     namespace = "pt.remotephotobridge"
