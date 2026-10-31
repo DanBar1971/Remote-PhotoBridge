@@ -20,8 +20,14 @@ jobs:
           java-version: '17'
       - name: Install Android SDK packages
         run: |
-          set -e
-          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          set -euo pipefail
+          sdkmanager_path="$(command -v sdkmanager || true)"
+          if [ -z "$sdkmanager_path" ]; then
+            sdkmanager_path="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n 1)"
+          fi
+          test -n "$sdkmanager_path"
+          yes | "$sdkmanager_path" --licenses >/dev/null || true
+          "$sdkmanager_path" 'platforms;android-35' 'build-tools;35.0.0'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
