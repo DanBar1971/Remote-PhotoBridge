@@ -195,6 +195,10 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
         logView = sub("Sem atividades nesta sessão.");
         logView.setTextIsSelectable(true);
         statusCard.addView(logView);
+        statusCard.addView(button("RECOLHER DIAGNÓSTICO DO WI-FI", false, () -> ensureWifiPermission(() -> {
+            message("A consultar Wi-Fi normal, rádio, grupo P2P e estado dos dispositivos...");
+            wifi.diagnostic();
+        })));
         statusCard.addView(button("COPIAR DIAGNÓSTICO DA LIGAÇÃO", false, () -> {
             android.content.ClipboardManager clipboard =
                     (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
@@ -273,7 +277,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
     private void renderSecondary(LinearLayout root) {
         LinearLayout peersCard = card(root);
         peersCard.addView(text("1. Encontrar o Principal", 18, TEXT, true));
-        peersCard.addView(sub("ÚNICO DISPOSITIVO QUE INICIA A LIGAÇÃO: este Secundário. No Principal, toca em ATIVAR RECEÇÃO e deixa-o à espera. Depois pesquisa aqui e escolhe o Principal. NÃO tentes ligar dos dois lados ao mesmo tempo."));
+        peersCard.addView(sub("SÓ ESTE SECUNDÁRIO INICIA A LIGAÇÃO. Ativa receção no Principal, espera que o grupo seja criado, procura aqui e toca em LIGAR AO PRINCIPAL uma única vez. Se estiverem em routers diferentes e não ligarem, testa ambos desligados do router, MAS com o Wi-Fi ligado."));
         peersCard.addView(button("PROCURAR DISPOSITIVOS", true, () -> ensureWifiPermission(() -> {
             wifi.discover();
             message("Se não aparecer, ativa a Localização e confirma o Wi-Fi em ambos.");
@@ -448,7 +452,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
                     showConnectionStatus("A LIGAR AO PRINCIPAL: " + name + ". Aguarda a confirmação do Android no outro telemóvel.");
                     Toast.makeText(this, "Pedido de ligação enviado a " + name, Toast.LENGTH_LONG).show();
                     message("Secundário iniciou ligação ao " + name + ". Não carregues em ligar no Principal.");
-                    wifi.connectTo(device, false);
+                    wifi.connectTo(device);
                 })));
             }
         });
