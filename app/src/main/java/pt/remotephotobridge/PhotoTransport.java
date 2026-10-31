@@ -54,6 +54,7 @@ final class PhotoTransport {
     private volatile ServerSocket server;
     private volatile boolean listening;
     private volatile boolean sending;
+    private volatile Uri latestReceivedPhotoUri;
 
     PhotoTransport(Context c, TransferDb db, Updates updates) {
         context = c.getApplicationContext(); this.db = db; this.updates = updates;
@@ -319,10 +320,53 @@ final class PhotoTransport {
                 throw new IOException("SHA-256 não corresponde à fotografia original.");
             destination.finish(true);
             finalized = true;
+            latestReceivedPhotoUri = destination.uri;
             db.markReceived(sha256);
             return true;
         } finally {
             if (!finalized) destination.closeIfIncomplete();
+        }
+    }
+
+    /** Latest successfully inserted gallery item, never an unfinished Nearby temp file. */
+    Uri latestReceivedPhotoUri() {
+        return latestReceivedPhotoUri;
+    }
+
+    /**
+     * Read ONLY the new picture created by the device's camera, not the
+     * rest of today's gallery. Owned MediaStore items can be read without
+     * requesting blanket permission to inspect other pictures.
+     */
+    Photo photoForCapturedUri(Uri photoUri) throws IOException {
+        if (photoUri == null || !"content".equals(photoUri.getScheme()))
+            throw new IOException("A fotografia não está disponível na Galeria.");
+        String[] columns = {
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.MIME_TYPE,
+                MediaStore.Images.Media.SIZE,
+                MediaStore.Images.Media.DATE_TAKEN,
+                MediaStore.Images.Media.DATE_ADDED,
+                MediaStore.Images.Media.DATE_MODIFIED
+        };
+        try (Cursor cur = context.getContentResolver().query(photoUri, columns, null, null, null)) {
+            if (cur == null || !cur.moveToFirst())
+                throw new IOException("Não foi possível encontrar a fotografia tirada.");
+            long size = cur.getLong(3);
+            String mime = cur.getString(2);
+            if (size <= 0 || size > MAX_PHOTO_BYTES || mime == null || !mime.startsWith("image/"))
+                throw new IOException("A fotografia ainda não está pronta para enviar.");
+            long taken = cur.isNull(4) ? 0 : cur.getLong(4);
+            long added = cur.isNull(5) ? 0 : cur.getLong(5) * 1000L;
+            long modified = cur.isNull(6) ? 0 : cur.getLong(6);
+            long captured = taken > 0 ? taken : added;
+            String name = cur.getString(1);
+            if (name == null || name.trim().isEmpty())
+                name = "PhotoBridge_Camera_" + cur.getLong(0) + ".jpg";
+            return new Photo(cur.getLong(0), photoUri, name, mime, size, captured, modified);
+        } catch (SecurityException err) {
+            throw new IOException("Não foi autorizado o acesso à fotografia acabada de tirar.", err);
         }
     }
 
