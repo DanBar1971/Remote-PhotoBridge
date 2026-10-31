@@ -24,6 +24,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.net.InetAddress;
 import java.security.SecureRandom;
@@ -175,16 +176,18 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
         Button change = button("Alterar função deste telemóvel", false, this::askChangeRole);
         roleCard.addView(change);
 
-        if (MAIN.equals(role)) renderPrincipal(content); else renderSecondary(content);
-
+        // Connection feedback must be visible WITHOUT scrolling; previously all
+        // connect/callback messages appeared below the device list.
         LinearLayout statusCard = card(content);
-        statusCard.addView(text("ESTADO DA LIGAÇÃO", 14, ACCENT, true));
-        connectionView = sub("Aguarda preparação Wi-Fi Direct.");
+        statusCard.addView(text("ESTADO DA LIGAÇÃO", 16, ACCENT, true));
+        connectionView = text("Não ligado. Escolhe o outro telemóvel na pesquisa.", 15, TEXT, true);
+        connectionView.setPadding(0, dp(8), 0, dp(6));
         statusCard.addView(connectionView);
         logView = sub("Sem atividades nesta sessão.");
         logView.setTextIsSelectable(true);
-        logView.setPadding(0, dp(12), 0, dp(4));
         statusCard.addView(logView);
+
+        if (MAIN.equals(role)) renderPrincipal(content); else renderSecondary(content);
         content.addView(sub("Sem nuvem · Sem conta Google · Fotos em qualidade original"));
     }
 
@@ -197,14 +200,14 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
             pairingPin = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
             pinView.setText(pairingPin);
             wifi.discover();
-            if (connectionView != null) connectionView.setText("Principal à procura do Secundário por Wi-Fi Direct.");
-            message("Receção ativada: descoberta Wi-Fi Direct iniciada. Pesquisa também no Secundário.");
+            showConnectionStatus("RECEÇÃO ATIVA. Escolhe o Secundário da lista e confirma o convite de ligação.");
+            message("Receção ativada. Procura o Secundário; toca em LIGAR A: [nome do Android] em apenas um dos dois telemóveis.");
         })));
         card.addView(button("PROCURAR TELEMÓVEL SECUNDÁRIO", false, () -> ensureWifiPermission(() -> {
             if (!accepting) { message("Ativa primeiro a receção."); return; }
             wifi.discover();
         })));
-        card.addView(sub("Os dois telemóveis devem estar com esta aplicação aberta e com Wi-Fi e Localização ativos. Procura o nome do outro telemóvel, não o da TV."));
+        card.addView(sub("Pesquisa nos dois Androids, mas toca em LIGAR A apenas num deles. Aceita qualquer convite de emparelhamento no outro. Não escolhas a TV."));
         discoveredList = new LinearLayout(this);
         discoveredList.setOrientation(LinearLayout.VERTICAL);
         card.addView(discoveredList);
@@ -213,11 +216,19 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
             wifi.createReceiverGroup();
             message("Modo compatibilidade: pesquisa novamente no Secundário.");
         })));
-        card.addView(button("Parar de receber", false, () -> {
-            accepting = false;
+        card.addView(button("DESLIGAR / REINICIAR LIGAÇÃO", false, () -> {
             transport.stopReceiving();
-            wifi.removeGroup();
+            wifi.disconnect();
+            showConnectionStatus("Ligação terminada. Podes voltar a procurar e emparelhar.");
+            message("Reinício pedido. Para repetir: toca em PROCURAR TELEMÓVEL SECUNDÁRIO.");
+        }));
+        card.addView(button("PARAR DE RECEBER", false, () -> {
+            accepting = false;
+            pairingPin = null;
+            transport.stopReceiving();
+            wifi.disconnect();
             pinView.setText("------");
+            showConnectionStatus("Receção desligada.");
             message("Receção parada.");
         }));
         card.addView(sub("PIN de emparelhamento (introduzir no secundário):"));
@@ -231,7 +242,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
     private void renderSecondary(LinearLayout root) {
         LinearLayout peersCard = card(root);
         peersCard.addView(text("1. Encontrar o Principal", 18, TEXT, true));
-        peersCard.addView(sub("No Principal carrega em ATIVAR RECEÇÃO. Confirma que os dois telemóveis têm Wi-Fi e Localização ativos. A pesquisa pode mostrar TVs e outros equipamentos: escolhe apenas o outro telemóvel."));
+        peersCard.addView(sub("No Principal carrega em ATIVAR RECEÇÃO. Pesquisa e toca apenas no outro Android. Depois confirma no outro telemóvel o convite Wi-Fi Direct. O Bluetooth não é necessário."));
         peersCard.addView(button("PROCURAR DISPOSITIVOS", true, () -> ensureWifiPermission(() -> {
             wifi.discover();
             message("Se não aparecer, ativa a Localização e confirma o Wi-Fi em ambos.");
@@ -239,6 +250,11 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
         discoveredList = new LinearLayout(this);
         discoveredList.setOrientation(LinearLayout.VERTICAL);
         peersCard.addView(discoveredList);
+        peersCard.addView(button("DESLIGAR / REINICIAR LIGAÇÃO", false, () -> {
+            principalAddress = null;
+            wifi.disconnect();
+            showConnectionStatus("Ligação reiniciada. Volta a procurar dispositivos.");
+        }));
 
         LinearLayout syncCard = card(root);
         syncCard.addView(text("2. Enviar fotografias", 18, TEXT, true));
@@ -251,13 +267,24 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
         pinEntry.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
         pinEntry.setFilters(new InputFilter[]{new InputFilter.LengthFilter(6)});
         syncCard.addView(pinEntry);
-        syncCard.addView(button("SINCRONIZAR FOTOGRAFIAS", true, () -> ensureGalleryPermission(() -> {
-            if (principalAddress == null) { message("Liga primeiro ao telemóvel Principal."); return; }
+        syncCard.addView(button("SINCRONIZAR FOTOGRAFIAS", true, () -> {
+            if (principalAddress == null) {
+                showConnectionStatus("Ainda NÃO está ligado. Toca em LIGAR A: [nome do Principal] e aceita o convite.");
+                Toast.makeText(this, "Primeiro liga os dois telemóveis por Wi-Fi Direct.", Toast.LENGTH_LONG).show();
+                return;
+            }
             String pin = pinEntry.getText().toString().trim();
-            if (!pin.matches("[0-9]{6}")) { message("Introduz o PIN de 6 dígitos."); return; }
-            if (!hasFullGalleryPermission()) message("Acesso parcial: apenas fotografias autorizadas podem ser sincronizadas.");
-            transport.send(principalAddress, pin);
-        })));
+            if (!pin.matches("[0-9]{6}")) {
+                Toast.makeText(this, "Introduz o PIN de 6 dígitos mostrado no Principal.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            ensureGalleryPermission(() -> {
+                if (!hasFullGalleryPermission()) message("Acesso parcial: só as fotografias autorizadas serão sincronizadas.");
+                showConnectionStatus("Ligado. A enviar fotografias para o Principal...");
+                Toast.makeText(this, "Sincronização iniciada", Toast.LENGTH_SHORT).show();
+                transport.send(principalAddress, pin);
+            });
+        }));
         syncCard.addView(sub("Fotografias já recebidas são ignoradas por SHA-256, sem transmissão repetida dos ficheiros."));
     }
 
@@ -344,8 +371,18 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
                 String name = device.deviceName == null || device.deviceName.isEmpty()
                         ? "Dispositivo Android" : device.deviceName;
                 boolean isPrincipal = MAIN.equals(role);
-                discoveredList.addView(button("LIGAR A: " + name, false,
-                        () -> ensureWifiPermission(() -> wifi.connectTo(device, isPrincipal))));
+                discoveredList.addView(button("LIGAR A: " + name, false, () -> {
+                    if (isPrincipal && !accepting) {
+                        Toast.makeText(this, "Ativa a receção no Principal primeiro.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    ensureWifiPermission(() -> {
+                        showConnectionStatus("A LIGAR A " + name + ". Confirma o convite Wi-Fi Direct no outro Android.");
+                        Toast.makeText(this, "Pedido de ligação enviado a " + name, Toast.LENGTH_LONG).show();
+                        message("Selecionado: " + name + ". Aguarda autorização no outro telemóvel.");
+                        wifi.connectTo(device, isPrincipal);
+                    });
+                }));
             }
         });
     }
@@ -353,20 +390,35 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
     @Override public void connected(WifiP2pInfo info) {
         runOnUiThread(() -> {
             if (MAIN.equals(role) && accepting && info.groupFormed && info.isGroupOwner) {
-                if (connectionView != null) connectionView.setText("Principal: grupo Wi-Fi Direct ativo. A receber fotografias.");
+                showConnectionStatus("LIGADO. Principal pronto para receber fotografias. Introduz o PIN no Secundário.");
                 // Android 14+ may anonymize groupOwnerAddress on the owner. Listen on
                 // all local interfaces; the PIN gates incoming transfer requests.
                 if (pairingPin != null) transport.receive(null, pairingPin);
             } else if (MAIN.equals(role) && accepting && info.groupFormed && !info.isGroupOwner) {
-                if (connectionView != null) connectionView.setText("Grupo criado com o papel errado. Desliga e volta a procurar a partir do Principal.");
+                showConnectionStatus("ERRO: o Principal não ficou como proprietário do grupo. Reinicia a ligação e liga a partir do Principal.");
                 message("Este Principal não ficou como proprietário do grupo Wi-Fi Direct. Pára a receção e volta a tentar, ligando a partir do Principal.");
             } else if (SECONDARY.equals(role) && info.groupFormed && !info.isGroupOwner) {
                 principalAddress = info.groupOwnerAddress;
-                if (connectionView != null) connectionView.setText("Ligado por Wi-Fi Direct ao Principal.");
+                showConnectionStatus("LIGADO AO PRINCIPAL. Introduz o PIN e toca em SINCRONIZAR FOTOGRAFIAS.");
                 message("Ligação Wi-Fi Direct estabelecida. Introduz o PIN e sincroniza.");
             } else if (SECONDARY.equals(role) && info.groupFormed && info.isGroupOwner) {
-                message("Este telemóvel tornou-se dono do grupo. Desliga e tenta ligar ao grupo criado pelo Principal.");
+                showConnectionStatus("ERRO: o Secundário tornou-se proprietário do grupo. Reinicia e liga a partir do Principal.");
+                message("O Secundário tornou-se proprietário. Usa DESLIGAR em ambos e inicia ligação no Principal.");
             }
+        });
+    }
+
+    @Override public void disconnected() {
+        runOnUiThread(() -> {
+            principalAddress = null;
+            transport.stopReceiving();
+            showConnectionStatus("Sem ligação Wi-Fi Direct. Procura e liga novamente ao outro telemóvel.");
+        });
+    }
+
+    private void showConnectionStatus(String state) {
+        runOnUiThread(() -> {
+            if (connectionView != null) connectionView.setText(state);
         });
     }
 
