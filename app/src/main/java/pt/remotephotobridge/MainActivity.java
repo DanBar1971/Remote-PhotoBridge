@@ -254,6 +254,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
                 pinView.setText(pairingPin);
                 showConnectionStatus("Receção ativa. À procura do outro telemóvel...");
                 wifi.prepareReceiverDiscovery();
+                wifi.watchForConnection();
             } else {
                 wifi.discover();
                 showConnectionStatus("Receção ativa. A atualizar a lista de telemóveis...");
