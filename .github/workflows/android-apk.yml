@@ -45,6 +45,21 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+      - name: Restore protected signing key (same certificate every release)
+        shell: bash
+        env:
+          RPB_SIGNING_BUNDLE: ${{ secrets.RPB_ANDROID_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RPB_SIGNING_BUNDLE:-}" ]; then
+            echo "::error::Missing RPB_ANDROID_SIGNING_BUNDLE GitHub Actions secret; configure it using SIGNING_SETUP.md. Release blocked."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$RPB_SIGNING_BUNDLE" | base64 --decode | tar --extract --gzip --no-same-owner --file -
+          test -s app/signing/remotephotobridge-alpha.p12
+          test -s local-signing.properties
+          echo "Signing bundle restored privately; key bytes never shown in logs."
       - name: Compile test APK
         shell: bash
         run: |
@@ -53,13 +68,24 @@ jobs:
       - name: Prepare release APK
         run: |
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk Remote-PhotoBridge-v1.0.0-alpha7-debug.apk
-          sha256sum Remote-PhotoBridge-v1.0.0-alpha7-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk Remote-PhotoBridge-v1.0.0-alpha8-debug.apk
+          sha256sum Remote-PhotoBridge-v1.0.0-alpha8-debug.apk
+          # Refuse to release anything signed with the ephemeral runner debug key.
+          apksigner="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/35.0.0/apksigner"
+          test -x "$apksigner"
+          cert="$("$apksigner" verify --print-certs Remote-PhotoBridge-v1.0.0-alpha8-debug.apk |
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+          expected="cf7b070bc2622c2f48aa71d7d08f9f572dff04d1d5e547b29d201f24c6761f47"
+          echo "Certificate SHA-256: $cert"
+          if [ "$cert" != "$expected" ]; then
+            echo "::error::APK signer mismatch. Publishing blocked to protect future in-place updates."
+            exit 1
+          fi
       - name: Keep Actions build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Remote-PhotoBridge-v1.0.0-alpha7-debug
-          path: Remote-PhotoBridge-v1.0.0-alpha7-debug.apk
+          name: Remote-PhotoBridge-v1.0.0-alpha8-debug
+          path: Remote-PhotoBridge-v1.0.0-alpha8-debug.apk
           if-no-files-found: error
           retention-days: 30
       - name: Publish APK to GitHub Releases
@@ -68,8 +94,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="v1.0.0-alpha7"
-          apk="Remote-PhotoBridge-v1.0.0-alpha7-debug.apk"
+          tag="v1.0.0-alpha8"
+          apk="Remote-PhotoBridge-v1.0.0-alpha8-debug.apk"
           if gh release view "$tag" >/dev/null 2>&1; then
             if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$apk"; then
               echo "APK already published for this version. Refusing to overwrite with another debug signature."
@@ -77,7 +103,7 @@ jobs:
             fi
             gh release upload "$tag" "$apk"
           else
-            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Remote PhotoBridge v1.0.0-alpha7" --notes "Diagnóstico Wi-Fi Direct: agora apenas o Secundário pode iniciar ligação ao Principal, impedindo pedidos concorrentes enquanto o Principal é dono de um grupo. Novo diagnóstico mostra a associação ao router/AP em separado da ligação P2P e a frequência. Mantém receção exclusiva no Principal e envio exclusivo no Secundário. Testa desligar ambos dos APs sem desligar o rádio Wi-Fi. Pré-release experimental não validada entre dois equipamentos reais; assinatura debug temporária requer desinstalar alpha6 antes de instalar." --prerelease
+            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Remote PhotoBridge v1.0.0-alpha8" --notes "Remote PhotoBridge alpha8: assinatura de testes fixa e protegida em GitHub Actions Secret. Depois de instalar alpha8, as futuras versões com a mesma chave e applicationId podem ser atualizadas por cima sem desinstalar. A passagem de alpha7 para alpha8 exige uma última reinstalação. Sem alterações ao sentido de transferência Secundário → Principal. APK experimental com testes reais Wi-Fi Direct ainda pendentes." --prerelease
           fi
           gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$apk"
           echo "Release publicada e APK confirmado em:"
@@ -88,15 +114,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          url="$(gh release view v1.0.0-alpha7 --json url --jq '.url')"
+          url="$(gh release view v1.0.0-alpha8 --json url --jq '.url')"
           cat > RELEASE_STATUS.md <<EOF
           # Remote PhotoBridge — APK de testes
 
           Release verificada pelo workflow: $url
 
-          APK: Remote-PhotoBridge-v1.0.0-alpha7-debug.apk
+          APK: Remote-PhotoBridge-v1.0.0-alpha8-debug.apk
 
-          SHA-256: $(sha256sum Remote-PhotoBridge-v1.0.0-alpha7-debug.apk | cut -d' ' -f1)
+          SHA-256: $(sha256sum Remote-PhotoBridge-v1.0.0-alpha8-debug.apk | cut -d' ' -f1)
 
           Alpha7: fluxo de emparelhamento com iniciador único no Secundário e diagnóstico separado Wi-Fi AP/P2P. Requer validação nos dois equipamentos físicos.
           EOF
