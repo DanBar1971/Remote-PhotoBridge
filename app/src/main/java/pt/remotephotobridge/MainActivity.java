@@ -92,8 +92,12 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
     }
 
     @Override protected void onStart() { super.onStart(); if (wifi != null) wifi.start(); }
-    @Override protected void onStop() { if (wifi != null) wifi.stop(); super.onStop(); }
+    // Keep the P2P receiver registered while the Android system displays its
+    // pairing authorization dialog: onStop may otherwise lose the connection
+    // broadcast. Unregister only when the activity is destroyed.
+    @Override protected void onStop() { super.onStop(); }
     @Override protected void onDestroy() {
+        if (wifi != null) wifi.stop();
         if (transport != null) transport.shutdown();
         if (database != null) database.close();
         super.onDestroy();
@@ -216,7 +220,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
             if (clipboard != null) {
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
                     "PhotoBridge diagnóstico", "Papel: " + role +
-                    "\\nEstado: " + connectionView.getText() + "\\n" + log));
+                    "\nEstado: " + connectionView.getText() + "\n" + log));
                 Toast.makeText(this, "Diagnóstico copiado.", Toast.LENGTH_SHORT).show();
             }
         }));
@@ -402,37 +406,41 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
 
     @Override public void peers(List<WifiP2pDevice> devices) {
         runOnUiThread(() -> {
-            // Never offer peer connection buttons on the Principal: it already
-            // owns the Wi-Fi Direct group and simultaneous connect() calls race.
             if (role == null || discoveredList == null) return;
-            // Refresh only when peers actually change. Recreating buttons on
-            // every Wi-Fi peer broadcast can swallow touch-up and make taps fail.
+            // Android sometimes sends an empty interim list while scanning.
+            // Never wipe a recently visible phone, especially during touch-down.
+            if (devices != null) {
+                for (WifiP2pDevice d : devices) {
+                    if (d.deviceAddress != null && !d.deviceAddress.isEmpty())
+                        knownPeers.put(d.deviceAddress, d);
+                }
+            }
             List<String> addresses = new ArrayList<>();
-            for (WifiP2pDevice d : devices) addresses.add(d.deviceAddress + "/" + d.deviceName);
+            for (WifiP2pDevice d : knownPeers.values())
+                addresses.add(d.deviceAddress + "/" + d.deviceName + "/" + d.status);
             Collections.sort(addresses);
             String signature = android.text.TextUtils.join(";", addresses);
             if (signature.equals(lastPeerSignature) && discoveredList.getChildCount() > 0) return;
             lastPeerSignature = signature;
             discoveredList.removeAllViews();
-            if (devices.isEmpty()) {
-                discoveredList.addView(sub("Nenhum outro telemóvel detetado nesta pesquisa. O rádio Wi-Fi e a Localização devem estar ligados; repete a pesquisa em ambos."));
+            if (knownPeers.isEmpty()) {
+                discoveredList.addView(sub("À procura do outro telemóvel…"));
                 return;
             }
-            discoveredList.addView(sub("Encontrados " + devices.size() + " dispositivos Wi-Fi Direct." +
-                    (MAIN.equals(role) ? " Neste Principal não precisas tocar em ligar." : " Seleciona apenas o Principal, não a TV.")));
-            for (WifiP2pDevice device : devices) {
-                String name = device.deviceName == null || device.deviceName.isEmpty()
-                        ? "Dispositivo Android" : device.deviceName;
-                if (MAIN.equals(role)) {
-                    discoveredList.addView(sub("Dispositivo detetado: " + name));
-                } else {
-                    discoveredList.addView(button("LIGAR AO PRINCIPAL: " + name, false, () -> ensureWifiPermission(() -> {
-                        showConnectionStatus("A LIGAR AO PRINCIPAL: " + name + ". Aguarda a confirmação do Android no outro telemóvel.");
-                        Toast.makeText(this, "Pedido de ligação enviado a " + name, Toast.LENGTH_LONG).show();
-                        message("Secundário iniciou ligação ao " + name + ". Não carregues em ligar no Principal.");
-                        wifi.connectTo(device);
-                    })));
-                }
+            discoveredList.addView(sub("Telemóveis e dispositivos encontrados (última pesquisa):"));
+            for (WifiP2pDevice d : knownPeers.values()) {
+                String name = d.deviceName == null || d.deviceName.isEmpty()
+                        ? "Android próximo" : d.deviceName;
+                final boolean isPrincipal = MAIN.equals(role);
+                discoveredList.addView(button("LIGAR: " + name, false, () -> ensureWifiPermission(() -> {
+                    if (isPrincipal && !accepting) {
+                        Toast.makeText(this, "Primeiro ativa a receção neste Principal.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    showConnectionStatus("A ligar a " + name + " por Wi-Fi Direct…");
+                    message("Pedido de ligação para " + name + ". Não toques em LIGAR no outro telemóvel.");
+                    wifi.connectTo(d, isPrincipal);
+                })));
             }
         });
     }
@@ -445,15 +453,15 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
                 // all local interfaces; the PIN gates incoming transfer requests.
                 if (pairingPin != null) transport.receive(null, pairingPin);
             } else if (MAIN.equals(role) && accepting && info.groupFormed && !info.isGroupOwner) {
-                showConnectionStatus("ERRO: o Principal não ficou como proprietário do grupo. Reinicia a ligação e liga a partir do Principal.");
-                message("Este Principal não ficou como proprietário do grupo Wi-Fi Direct. Pára a receção e volta a tentar, ligando a partir do Principal.");
+                showConnectionStatus("Ligação criada, mas o Android atribuiu a rede ao Secundário. Recomeça e liga a partir do Principal.");
+                message("Grupo ligado, mas este Principal não é proprietário. Liga a partir do Principal, que pede prioridade de proprietário.");
             } else if (SECONDARY.equals(role) && info.groupFormed && !info.isGroupOwner) {
                 principalAddress = info.groupOwnerAddress;
                 showConnectionStatus("LIGADO AO PRINCIPAL. Introduz o PIN e toca em SINCRONIZAR FOTOGRAFIAS.");
                 message("Ligação Wi-Fi Direct estabelecida. Introduz o PIN e sincroniza.");
             } else if (SECONDARY.equals(role) && info.groupFormed && info.isGroupOwner) {
-                showConnectionStatus("ERRO: o Secundário tornou-se proprietário do grupo. Reinicia e liga a partir do Principal.");
-                message("O Secundário tornou-se proprietário. Usa DESLIGAR em ambos e inicia ligação no Principal.");
+                showConnectionStatus("Grupo formado, mas este Secundário é proprietário. No próximo emparelhamento, inicia a ligação a partir do Principal.");
+                message("Negociação atribuiu proprietário ao Secundário. A transferência requer o Principal como proprietário.");
             }
         });
     }
