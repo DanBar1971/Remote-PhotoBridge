@@ -1,9 +1,9 @@
 # Remote PhotoBridge — APK de testes
 
-Release verificada pelo workflow: https://github.com/DanBar1971/Remote-PhotoBridge/releases/tag/v1.0.0-alpha2
+Release verificada pelo workflow: https://github.com/DanBar1971/Remote-PhotoBridge/releases/tag/v1.0.0-alpha3
 
-APK: Remote-PhotoBridge-v1.0.0-alpha2-debug.apk
+APK: Remote-PhotoBridge-v1.0.0-alpha3-debug.apk
 
-SHA-256: 1846c5c6b8cd87683770b709959bbb99aeeda2a30aa0afc6f132a8edaff4cdcc
+SHA-256: 8da0a118cec07036adf14c1f355ab99a5a2a06559958709272fc5aa0a35f975d
 
-Compilação inicial para testes. O Wi-Fi Direct entre telemóveis reais ainda precisa de validação.
+Alpha3: descoberta Wi-Fi Direct bidirecional de dispositivos, fotografias apenas do Secundário para o Principal. A ligação real requer teste nos dois telemóveis.
