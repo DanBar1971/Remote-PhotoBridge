@@ -23,10 +23,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Install Android 35 build tools
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Install Android SDK 35 without obsolete tools package
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager_path="$(command -v sdkmanager || true)"
+          if [ -z "$sdkmanager_path" ]; then
+            sdkmanager_path="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n 1)"
+          fi
+          test -n "$sdkmanager_path"
+          echo "Using $sdkmanager_path"
+          yes | "$sdkmanager_path" --licenses >/dev/null || true
+          "$sdkmanager_path" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Install Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -84,6 +92,7 @@ jobs:
           EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f BUILD_FAILURE.md ]; then git rm -f BUILD_FAILURE.md; fi
           git add RELEASE_STATUS.md
           git commit -m "docs: verify published alpha APK in GitHub Releases"
           git push origin HEAD:main
