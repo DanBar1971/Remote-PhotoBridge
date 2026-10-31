@@ -85,32 +85,66 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
         super.onDestroy();
     }
 
+    /**
+     * Full-screen role selection. Some OEM Android alert dialogs can collapse the
+     * setItems list when system display/font scaling is increased. Keep the two
+     * actions as explicit touch targets in our own activity content instead.
+     */
     private void showRoleChooser() {
-        new AlertDialog.Builder(this).setTitle("Qual é a função deste telemóvel?")
-                .setMessage("Escolhe uma função para este dispositivo. O Principal nunca envia fotografias.")
-                .setCancelable(false)
-                .setItems(new String[]{"PRINCIPAL  ·  Só receber", "SECUNDÁRIO  ·  Só enviar"}, (d, which) -> {
-                    role = which == 0 ? MAIN : SECONDARY;
-                    prefs.edit().putString("role", role).apply();
-                    render();
-                }).show();
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(BG);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(32), dp(20), dp(36));
+        scroll.addView(root);
+        setContentView(scroll);
+
+        TextView title = text("REMOTE", 30, TEXT, true);
+        root.addView(title);
+        root.addView(text("PHOTO BRIDGE", 30, ACCENT, true));
+        TextView heading = text("Escolhe a função deste telemóvel", 22, TEXT, true);
+        heading.setPadding(0, dp(28), 0, dp(12));
+        root.addView(heading);
+        root.addView(sub("Esta escolha define o sentido da transferência. Podes alterá-la mais tarde nas opções da aplicação."));
+
+        LinearLayout mainCard = card(root);
+        mainCard.addView(text("TELEMÓVEL PRINCIPAL", 18, ACCENT, true));
+        mainCard.addView(sub("Só RECEBE fotografias do secundário. Guarda tudo diretamente na galeria deste telemóvel."));
+        Button selectMain = button("ESCOLHER PRINCIPAL · RECEBER", true, () -> selectRole(MAIN));
+        selectMain.getLayoutParams().height = dp(68);
+        mainCard.addView(selectMain);
+
+        LinearLayout secondaryCard = card(root);
+        secondaryCard.addView(text("TELEMÓVEL SECUNDÁRIO", 18, ACCENT, true));
+        secondaryCard.addView(sub("Só ENVIA fotografias da sua galeria para o telemóvel Principal. Não precisa de cartão SIM nem de Internet."));
+        Button selectSecondary = button("ESCOLHER SECUNDÁRIO · ENVIAR", true, () -> selectRole(SECONDARY));
+        selectSecondary.getLayoutParams().height = dp(68);
+        secondaryCard.addView(selectSecondary);
+
+        root.addView(sub("Comunicação direta por Wi-Fi Direct. Nenhuma fotografia é enviada para a Internet."));
+    }
+
+    private void selectRole(String selectedRole) {
+        if (!MAIN.equals(selectedRole) && !SECONDARY.equals(selectedRole)) return;
+        role = selectedRole;
+        prefs.edit().putString("role", role).apply();
+        render();
     }
 
     private void askChangeRole() {
-        new AlertDialog.Builder(this).setTitle("Alterar a função?")
-                .setMessage("A função é exclusiva. Principal recebe fotos; Secundário envia fotos. Qualquer transferência em curso deve estar concluída.")
-                .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Alterar", (d,w) -> {
-                    if (transport.isSending()) { message("Aguarda o fim da transferência antes de mudar a função."); return; }
-                    transport.stopReceiving();
-                    wifi.removeGroup();
-                    accepting = false;
-                    principalAddress = null;
-                    pairingPin = null;
-                    role = null;
-                    prefs.edit().remove("role").apply();
-                    showRoleChooser();
-                }).show();
+        if (transport.isSending()) {
+            message("Aguarda o fim da transferência antes de mudar a função.");
+            return;
+        }
+        transport.stopReceiving();
+        wifi.removeGroup();
+        accepting = false;
+        principalAddress = null;
+        pairingPin = null;
+        role = null;
+        prefs.edit().remove("role").apply();
+        showRoleChooser();
     }
 
     private void render() {
