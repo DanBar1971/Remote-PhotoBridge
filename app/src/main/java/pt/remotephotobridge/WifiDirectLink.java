@@ -9,6 +9,8 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.net.NetworkInfo;
 import android.net.wifi.WpsInfo;
+import android.net.wifi.WifiManager;
+import android.net.wifi.WifiInfo;
 import android.net.wifi.p2p.WifiP2pConfig;
 import android.net.wifi.p2p.WifiP2pGroup;
 import android.net.wifi.p2p.WifiP2pDevice;
@@ -156,7 +158,7 @@ final class WifiDirectLink {
     }
 
     @SuppressLint("MissingPermission")
-    void connectTo(WifiP2pDevice device, boolean principal) {
+    void connectTo(WifiP2pDevice device) {
         if (!hasWifiPermission()) { listener.message("Permissão Wi-Fi Direct em falta."); return; }
         if (connecting) { listener.message("Aguarda o pedido de ligação anterior ou usa Desligar/Reiniciar ligação."); return; }
         if (wasConnected) { listener.message("Já existe uma ligação. Usa Desligar antes de emparelhar outro dispositivo."); return; }
@@ -165,7 +167,9 @@ final class WifiDirectLink {
         listener.message("A iniciar ligação a " + tryingPeer + ". Confirma o convite que aparecer no outro telemóvel.");
         WifiP2pConfig config = new WifiP2pConfig();
         config.deviceAddress = device.deviceAddress;
-        config.groupOwnerIntent = principal ? 15 : 0;
+        // Only the secondary starts negotiation. The Principal has an existing
+        // group and must remain its owner; two simultaneous connect calls race.
+        config.groupOwnerIntent = 0;
         config.wps.setup = WpsInfo.PBC;
         // Stop discovery before pairing. Concurrent discovery can cause BUSY on some OEMs.
         watchForConnection();
@@ -255,7 +259,7 @@ final class WifiDirectLink {
         watchForConnection();
         if (!hasWifiPermission()) { listener.message("Permissão Wi-Fi Direct em falta."); return; }
         if (wasConnected) { listener.message("Já estás num grupo; desliga-o antes de criar outro."); return; }
-        listener.message("Modo compatibilidade: a criar grupo com o Principal como proprietário...");
+        listener.message("Principal: a criar grupo Wi-Fi Direct dedicado (o Secundário é o único que envia um pedido).");
         manager.stopPeerDiscovery(channel, new WifiP2pManager.ActionListener() {
             @Override public void onSuccess() { doCreateGroup(); }
             @Override public void onFailure(int code) { doCreateGroup(); }
@@ -316,6 +320,26 @@ final class WifiDirectLink {
      */
     @SuppressLint("MissingPermission")
     void diagnostic() {
+        // Wi-Fi Direct has its own link; an infrastructure AP connection is
+        // separate, but concurrent radio/AP operation is OEM-dependent.
+        WifiManager wm = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+        if (wm != null) {
+            listener.message("Rádio Wi-Fi ativo: " + (wm.isWifiEnabled() ? "sim" : "NÃO") + ".");
+            try {
+                WifiInfo current = wm.getConnectionInfo();
+                if (current != null && current.getNetworkId() >= 0) {
+                    int mhz = current.getFrequency();
+                    String band = mhz >= 5925 ? "6 GHz" : mhz >= 4900 ? "5 GHz" :
+                            mhz >= 2300 ? "2,4 GHz" : "frequência indisponível";
+                    listener.message("Wi-Fi normal: ligado a um ponto de acesso (" +
+                            band + "). Isto NÃO significa que Wi-Fi Direct esteja ligado.");
+                } else {
+                    listener.message("Wi-Fi normal: sem associação a um AP visível à aplicação (ou estado ocultado pelas permissões do Android).");
+                }
+            } catch (SecurityException e) {
+                listener.message("Estado do Wi-Fi normal indisponível por permissões.");
+            }
+        }
         if (!hasWifiPermission()) {
             listener.message("Diagnóstico indisponível: falta autorização de Dispositivos próximos / Localização.");
             return;
@@ -344,6 +368,8 @@ final class WifiDirectLink {
                 String owner = group.getOwner() == null ? "indisponível" : group.getOwner().deviceName;
                 listener.message("Grupo: " + group.getNetworkName() + " | proprietário: " +
                         owner + " | clientes ligados: " + group.getClientList().size() + ".");
+                if (Build.VERSION.SDK_INT >= 29)
+                    listener.message("Frequência do grupo Wi-Fi Direct: " + group.getFrequency() + " MHz.");
                 for (WifiP2pDevice device : group.getClientList()) {
                     listener.message("Cliente: " + device.deviceName + " | " + peerStatus(device.status));
                 }
