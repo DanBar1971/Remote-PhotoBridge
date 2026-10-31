@@ -47,6 +47,8 @@ final class NearbyPhotoLink {
         void authenticate(String id, String name, String digits);
         void connected();
         void disconnected();
+        /** Called only after an original photo is verified and inserted in Gallery. */
+        void photoReceived(Uri galleryUri);
     }
 
     private static final String SERVICE = "pt.remotephotobridge.nearby.photos.v1";
@@ -351,6 +353,11 @@ final class NearbyPhotoLink {
                 saved = photos.saveNearbyPhoto(temporary, metadata.getString("name"),
                         metadata.getString("mime"), metadata.getLong("size"),
                         metadata.getLong("taken"), metadata.getString("hash"));
+                if (saved) {
+                    // Expose the Gallery action immediately, not only at the
+                    // end of a potentially lengthy multi-photo transfer.
+                    listener.photoReceived(photos.latestReceivedPhotoUri());
+                }
                 listener.state(saved ? "Fotografia guardada na Galeria do Principal." :
                         "Fotografia repetida; não foi novamente guardada.");
             } catch (Exception e) {

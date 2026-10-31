@@ -68,12 +68,12 @@ jobs:
       - name: Prepare release APK
         run: |
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk Remote-PhotoBridge-v1.0.0-alpha11-debug.apk
-          sha256sum Remote-PhotoBridge-v1.0.0-alpha11-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk Remote-PhotoBridge-v1.0.0-alpha12-debug.apk
+          sha256sum Remote-PhotoBridge-v1.0.0-alpha12-debug.apk
           # Refuse to release anything signed with the ephemeral runner debug key.
           apksigner="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/35.0.0/apksigner"
           test -x "$apksigner"
-          cert="$("$apksigner" verify --print-certs Remote-PhotoBridge-v1.0.0-alpha11-debug.apk |
+          cert="$("$apksigner" verify --print-certs Remote-PhotoBridge-v1.0.0-alpha12-debug.apk |
             sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
           expected="cf7b070bc2622c2f48aa71d7d08f9f572dff04d1d5e547b29d201f24c6761f47"
           echo "Certificate SHA-256: $cert"
@@ -84,8 +84,8 @@ jobs:
       - name: Keep Actions build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Remote-PhotoBridge-v1.0.0-alpha11-debug
-          path: Remote-PhotoBridge-v1.0.0-alpha11-debug.apk
+          name: Remote-PhotoBridge-v1.0.0-alpha12-debug
+          path: Remote-PhotoBridge-v1.0.0-alpha12-debug.apk
           if-no-files-found: error
           retention-days: 30
       - name: Publish APK to GitHub Releases
@@ -94,8 +94,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="v1.0.0-alpha11"
-          apk="Remote-PhotoBridge-v1.0.0-alpha11-debug.apk"
+          tag="v1.0.0-alpha12"
+          apk="Remote-PhotoBridge-v1.0.0-alpha12-debug.apk"
           if gh release view "$tag" >/dev/null 2>&1; then
             if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$apk"; then
               echo "APK already published for this version. Refusing to overwrite with another debug signature."
@@ -103,7 +103,7 @@ jobs:
             fi
             gh release upload "$tag" "$apk"
           else
-            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Remote PhotoBridge v1.0.0-alpha11" --notes "Remote PhotoBridge alpha11: substitui emparelhamento Wi-Fi Direct manual por Google Nearby Connections, igual ao transporte utilizado na SaúdePrática. No Secundário, sincronizar apenas as fotografias de Hoje (predefinição) ou últimos 3, 7, 14 ou 30 dias, após pré-visualizar quantidade/tamanho e confirmar. O Principal só recebe e guarda as imagens originais na Galeria do Android, pasta Pictures/Remote PhotoBridge. Sem Internet ou SIM, autenticação por código igual nos dois Androids. SHA-256 evita duplicados e verifica integridade; só fotografias da data selecionada. Testes automáticos de datas incluídos. Assinatura fixa preservada desde alpha8, instalação direta por cima. Transferência física ainda precisa validação." --prerelease
+            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Remote PhotoBridge v1.0.0-alpha12" --notes "Remote PhotoBridge alpha12: após a receção de uma fotografia verificada aparece MOSTRAR GALERIA no Principal, abrindo a fotografia recebida no visualizador Android. No Secundário, ABRIR CÂMARA permite fotografar em resolução original e guarda primeiro a imagem na Galeria. A aplicação pergunta se queres sincronizar exclusivamente essa fotografia, sem transferir outras imagens do dia; se não houver ligação ao Principal, oferece procurar e pede uma nova confirmação ao conectar. Mantém a sincronização por Hoje/3/7/14/30 dias, deduplicação SHA-256, Nearby e a assinatura fixa da alpha8 para atualizar por cima." --prerelease
           fi
           gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$apk"
           echo "Release publicada e APK confirmado em:"
@@ -114,17 +114,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          url="$(gh release view v1.0.0-alpha11 --json url --jq '.url')"
+          url="$(gh release view v1.0.0-alpha12 --json url --jq '.url')"
           cat > RELEASE_STATUS.md <<EOF
           # Remote PhotoBridge — APK de testes
 
           Release verificada pelo workflow: $url
 
-          APK: Remote-PhotoBridge-v1.0.0-alpha11-debug.apk
+          APK: Remote-PhotoBridge-v1.0.0-alpha12-debug.apk
 
-          SHA-256: $(sha256sum Remote-PhotoBridge-v1.0.0-alpha11-debug.apk | cut -d' ' -f1)
+          SHA-256: $(sha256sum Remote-PhotoBridge-v1.0.0-alpha12-debug.apk | cut -d' ' -f1)
 
-          Alpha11: Nearby Connections (como SaúdePrática), seleção Hoje/3/7/14/30 dias com testes de datas, importação original na Galeria do Principal, confirmação e deduplicação SHA-256. Certificado fixo desde alpha8.
+          Alpha12: botão Mostrar Galeria após foto recebida, Câmara no Secundário com confirmação de sincronizar apenas a imagem tirada. Nearby e chave fixa mantidos.
           EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

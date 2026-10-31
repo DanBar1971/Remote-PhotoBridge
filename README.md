@@ -2,7 +2,7 @@
 
 Transferência local de fotografias originais do telemóvel **Secundário (só envia)** para o **Principal (só recebe)**, sem Internet, sem SIM, sem conta cloud e sem necessidade de ambos estarem ligados ao mesmo router.
 
-## Fluxo da alpha11
+## Fluxo da alpha12
 
 Nesta versão, a ligação foi migrada do controlo Wi-Fi Direct manual (que falhava nos testes Redmi) para **Google Nearby Connections**: o mesmo sistema que funciona na sincronização da SaúdePrática. Utiliza Bluetooth e Wi-Fi automaticamente, sem dados móveis. Necessita de Google Play Services instalado e atualizado. **A biblioteca não garante forçar exclusivamente o transporte Wi-Fi Direct.**
 
@@ -41,7 +41,7 @@ As imagens recebidas são inseridas por `MediaStore` em `Pictures/Remote PhotoBr
 
 `PhotoDateRangeTest` confirma Hoje, últimos três dias, passagem de mês e mudança de hora e que um pedido “toda a galeria” não é permitido.
 
-O workflow `.github/workflows/validate-android-pr.yml` executa testes e compilação antes do merge. Depois de integrar na branch principal, `.github/workflows/android-apk.yml` compila com a **chave privada fixa**, verifica a assinatura SHA-256 e publica `Remote-PhotoBridge-v1.0.0-alpha11-debug.apk` numa pré-release.
+O workflow `.github/workflows/validate-android-pr.yml` executa testes e compilação antes do merge. Depois de integrar na branch principal, `.github/workflows/android-apk.yml` compila com a **chave privada fixa**, verifica a assinatura SHA-256 e publica `Remote-PhotoBridge-v1.0.0-alpha12-debug.apk` numa pré-release.
 
 **Importante:** testes automáticos/compilação não substituem um teste real de emparelhamento, transferência, deduplicação e visualização na galeria nos dois telemóveis. Esta é uma versão alpha.
 
@@ -50,3 +50,15 @@ O workflow `.github/workflows/validate-android-pr.yml` executa testes e compila�
 https://github.com/DanBar1971/Remote-PhotoBridge
 
 Chave de assinatura privada guardada em GitHub Actions Secret `RPB_ANDROID_SIGNING_BUNDLE`. Não publicar ficheiros de assinatura no código-fonte.
+
+## Novidades alpha12 — Câmara e Galeria
+
+- **Principal (apenas recetor):** assim que a aplicação confirma que uma nova imagem foi gravada corretamente, aparece o botão **MOSTRAR GALERIA**. Abre a fotografia recebida numa aplicação de Galeria/visualizador do Android, com fallback para a Galeria normal.
+- **Secundário (apenas emissor):** novo botão **ABRIR CÂMARA**. É aberta a aplicação de câmara instalada, com captura de resolução original para um item MediaStore em `DCIM/Remote PhotoBridge`.
+- Após a captura, o original fica guardado primeiro na **Galeria do Secundário**; a aplicação pergunta **“Sincronizar apenas esta fotografia?”**. Nada é enviado sem confirmação.
+- Se já existir uma ligação Nearby, só essa fotografia é enviada; se estiver desligado, é possível procurar o Principal e confirmar novamente quando a ligação for estabelecida.
+- Se o utilizador escolher **Mais tarde**, a imagem mantém-se na galeria e poderá entrar numa futura sincronização por período.
+- O Principal continua proibido de enviar fotografias; o sentido da comunicação e a deduplicação por SHA-256 mantêm-se.
+- O certificado protegido e o identificador Android continuam iguais: instalar `alpha12` sobre `alpha11`, sem desinstalar.
+
+A abertura da câmara e o visualizador da Galeria dependem das apps instaladas em cada Android. É necessário confirmar com testes físicos nos dois equipamentos.

@@ -18,8 +18,8 @@ android {
         applicationId = "pt.remotephotobridge"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.0.0-alpha11"
+        versionCode = 12
+        versionName = "1.0.0-alpha12"
     }
     signingConfigs {
         create("persistentAlpha") {
