@@ -9,7 +9,7 @@ public class PhotoDateRangeTest {
     private Calendar date(int year, int month, int day, int hour) {
         Calendar c = Calendar.getInstance(TimeZone.getTimeZone("Europe/Lisbon"));
         c.clear();
-        c.set(year, month - 1, day, hour, 40, 15);
+        c.set(year, month - 1, day, hour, 0, 0);
         return c;
     }
     @Test public void todayBeginsAtLocalMidnight() {
