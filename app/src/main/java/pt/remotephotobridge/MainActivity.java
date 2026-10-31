@@ -196,8 +196,22 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
             accepting = true;
             pairingPin = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
             pinView.setText(pairingPin);
+            wifi.discover();
+            if (connectionView != null) connectionView.setText("Principal à procura do Secundário por Wi-Fi Direct.");
+            message("Receção ativada: descoberta Wi-Fi Direct iniciada. Pesquisa também no Secundário.");
+        })));
+        card.addView(button("PROCURAR TELEMÓVEL SECUNDÁRIO", false, () -> ensureWifiPermission(() -> {
+            if (!accepting) { message("Ativa primeiro a receção."); return; }
+            wifi.discover();
+        })));
+        card.addView(sub("Os dois telemóveis devem estar com esta aplicação aberta e com Wi-Fi e Localização ativos. Procura o nome do outro telemóvel, não o da TV."));
+        discoveredList = new LinearLayout(this);
+        discoveredList.setOrientation(LinearLayout.VERTICAL);
+        card.addView(discoveredList);
+        card.addView(button("MODO COMPATIBILIDADE · CRIAR GRUPO", false, () -> ensureWifiPermission(() -> {
+            if (!accepting) { message("Ativa primeiro a receção."); return; }
             wifi.createReceiverGroup();
-            message("A criar grupo Wi-Fi Direct no Principal...");
+            message("Modo compatibilidade: pesquisa novamente no Secundário.");
         })));
         card.addView(button("Parar de receber", false, () -> {
             accepting = false;
@@ -217,7 +231,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
     private void renderSecondary(LinearLayout root) {
         LinearLayout peersCard = card(root);
         peersCard.addView(text("1. Encontrar o Principal", 18, TEXT, true));
-        peersCard.addView(sub("No outro telemóvel carrega primeiro em ATIVAR RECEÇÃO."));
+        peersCard.addView(sub("No Principal carrega em ATIVAR RECEÇÃO. Confirma que os dois telemóveis têm Wi-Fi e Localização ativos. A pesquisa pode mostrar TVs e outros equipamentos: escolhe apenas o outro telemóvel."));
         peersCard.addView(button("PROCURAR DISPOSITIVOS", true, () -> ensureWifiPermission(() -> {
             wifi.discover();
             message("Se não aparecer, ativa a Localização e confirma o Wi-Fi em ambos.");
@@ -319,27 +333,33 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
 
     @Override public void peers(List<WifiP2pDevice> devices) {
         runOnUiThread(() -> {
-            if (!SECONDARY.equals(role) || discoveredList == null) return;
+            if (role == null || discoveredList == null) return;
             discoveredList.removeAllViews();
             if (devices.isEmpty()) {
-                discoveredList.addView(sub("Ainda não foram encontrados dispositivos. Repete a pesquisa."));
+                discoveredList.addView(sub("Não há outros equipamentos Wi-Fi Direct visíveis. Faz nova pesquisa nos dois telemóveis e confirma a Localização ligada."));
                 return;
             }
+            discoveredList.addView(sub("Encontrados " + devices.size() + " dispositivos. Escolhe apenas o outro telemóvel, não a TV."));
             for (WifiP2pDevice device : devices) {
                 String name = device.deviceName == null || device.deviceName.isEmpty()
                         ? "Dispositivo Android" : device.deviceName;
-                discoveredList.addView(button("Ligar a " + name, false,
-                        () -> ensureWifiPermission(() -> wifi.connectTo(device))));
+                boolean isPrincipal = MAIN.equals(role);
+                discoveredList.addView(button("LIGAR A: " + name, false,
+                        () -> ensureWifiPermission(() -> wifi.connectTo(device, isPrincipal))));
             }
         });
     }
 
     @Override public void connected(WifiP2pInfo info) {
         runOnUiThread(() -> {
-            if (MAIN.equals(role) && accepting && info.isGroupOwner) {
-                if (connectionView != null) connectionView.setText("Principal: grupo Wi-Fi Direct ativo. Só receção.");
-                if (info.groupOwnerAddress != null && pairingPin != null)
-                    transport.receive(info.groupOwnerAddress, pairingPin);
+            if (MAIN.equals(role) && accepting && info.groupFormed && info.isGroupOwner) {
+                if (connectionView != null) connectionView.setText("Principal: grupo Wi-Fi Direct ativo. A receber fotografias.");
+                // Android 14+ may anonymize groupOwnerAddress on the owner. Listen on
+                // all local interfaces; the PIN gates incoming transfer requests.
+                if (pairingPin != null) transport.receive(null, pairingPin);
+            } else if (MAIN.equals(role) && accepting && info.groupFormed && !info.isGroupOwner) {
+                if (connectionView != null) connectionView.setText("Grupo criado com o papel errado. Desliga e volta a procurar a partir do Principal.");
+                message("Este Principal não ficou como proprietário do grupo Wi-Fi Direct. Pára a receção e volta a tentar, ligando a partir do Principal.");
             } else if (SECONDARY.equals(role) && info.groupFormed && !info.isGroupOwner) {
                 principalAddress = info.groupOwnerAddress;
                 if (connectionView != null) connectionView.setText("Ligado por Wi-Fi Direct ao Principal.");
