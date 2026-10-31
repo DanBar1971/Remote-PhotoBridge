@@ -18,8 +18,8 @@ android {
         applicationId = "pt.remotephotobridge"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.0.0-alpha10"
+        versionCode = 11
+        versionName = "1.0.0-alpha11"
     }
     signingConfigs {
         create("persistentAlpha") {
@@ -48,4 +48,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    // Same Nearby Connections library used in the working SaúdePrática app.
+    implementation("com.google.android.gms:play-services-nearby:19.3.0")
 }
