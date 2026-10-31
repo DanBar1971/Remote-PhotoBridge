@@ -135,10 +135,10 @@ final class WifiDirectLink {
     void discover() {
         if (!hasWifiPermission()) { listener.message("Autoriza a permissão Dispositivos próximos primeiro."); return; }
         if (connecting) { listener.message("Já existe um pedido de ligação em curso. Aguarda ou desliga primeiro."); return; }
-        listener.message("A procurar dispositivos Wi-Fi Direct próximos. No Principal, não é necessário encontrar o Secundário se este já encontrou o Principal.");
+        listener.message("Descoberta Wi-Fi Direct ativa: os dois Androids devem estar visíveis. O Secundário é o único que inicia a ligação.");
         manager.discoverPeers(channel, new WifiP2pManager.ActionListener() {
             @Override public void onSuccess() {
-                listener.message("Pesquisa iniciada. Toca no nome do outro telemóvel para ligar.");
+                listener.message("Pesquisa iniciada pelo Android. A procurar pares próximos (ainda não significa encontrados).");
                 requestPeers();
             }
             @Override public void onFailure(int code) {
@@ -252,6 +252,65 @@ final class WifiDirectLink {
         if (monitorScheduled || monitoringUntil == 0) return;
         monitorScheduled = true;
         main.postDelayed(connectionPoll, 2_000L);
+    }
+
+    /**
+     * Normal phone-to-phone setup. Do NOT create an autonomous P2P group
+     * before the peer is discovered: createGroup() stops active discovery
+     * and on certain Xiaomi/Redmi firmware prevents the other Android from
+     * seeing this device. Role (receiver) is separate from P2P group owner.
+     *
+     * Clear any old autonomous group left by alpha6/alpha8 before scanning.
+     */
+    @SuppressLint("MissingPermission")
+    void prepareReceiverDiscovery() {
+        if (!hasWifiPermission()) {
+            listener.message("Autoriza Dispositivos próximos / Localização para ativar Wi-Fi Direct.");
+            return;
+        }
+        if (connecting) {
+            listener.message("Existe um emparelhamento anterior pendente. A terminar antes da descoberta...");
+        }
+        connecting = false;
+        monitoringUntil = 0;
+        main.removeCallbacks(connectionPoll);
+        monitorScheduled = false;
+        manager.requestGroupInfo(channel, group -> {
+            if (group == null) {
+                listener.message("Principal: sem grupo antigo. A iniciar descoberta normal Wi-Fi Direct.");
+                discover();
+                return;
+            }
+            listener.message("Principal: a eliminar grupo anterior (" + group.getNetworkName() + ") antes de ficar visível.");
+            manager.cancelConnect(channel, new WifiP2pManager.ActionListener() {
+                @Override public void onSuccess() { clearOldGroupAndDiscover(); }
+                @Override public void onFailure(int reason) { clearOldGroupAndDiscover(); }
+            });
+        });
+    }
+
+    @SuppressLint("MissingPermission")
+    private void clearOldGroupAndDiscover() {
+        manager.removeGroup(channel, new WifiP2pManager.ActionListener() {
+            @Override public void onSuccess() {
+                resetLocalConnectionState();
+                listener.message("Grupo antigo removido. Principal à procura do Secundário.");
+                discover();
+            }
+            @Override public void onFailure(int reason) {
+                resetLocalConnectionState();
+                listener.message("Remover grupo antigo: " + explain(reason) +
+                        ". A tentar descobrir o Secundário sem criar novo grupo.");
+                discover();
+            }
+        });
+    }
+
+    private void resetLocalConnectionState() {
+        wasConnected = false;
+        groupWaiting = false;
+        connecting = false;
+        listener.disconnected();
     }
 
     @SuppressLint("MissingPermission")

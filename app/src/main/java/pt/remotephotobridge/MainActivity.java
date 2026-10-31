@@ -228,16 +228,27 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
             accepting = true;
             pairingPin = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
             pinView.setText(pairingPin);
-            showConnectionStatus("A CRIAR GRUPO WI-FI DIRECT NO PRINCIPAL. Ainda NÃO ligado ao Secundário.");
-            message("O Principal vai criar um grupo Wi-Fi Direct próprio. Aguarda confirmação do Android.");
-            wifi.createReceiverGroup();
+            showConnectionStatus("RECEÇÃO ATIVA: descoberta de telemóveis Wi-Fi Direct. Ainda sem ligação.");
+            message("Principal: a limpar grupos P2P antigos e a iniciar a descoberta Wi-Fi Direct normal.");
+            wifi.prepareReceiverDiscovery();
         })));
-        card.addView(sub("O PRINCIPAL SÓ RECEBE. Não procures o Secundário aqui e NÃO carregues em LIGAR nos dois. Depois de criar o grupo, deixa esta aplicação aberta. Só o Secundário deve selecionar LIGAR AO PRINCIPAL."));
+        card.addView(sub("O Principal fica visível durante a pesquisa e aguarda. Os dois telemóveis podem procurar, mas SÓ o Secundário deve tocar em LIGAR AO PRINCIPAL. Não é preciso criar um grupo manualmente."));
+        card.addView(button("REPETIR PESQUISA WI-FI DIRECT", false, () -> ensureWifiPermission(() -> {
+            if (!accepting) {
+                Toast.makeText(this, "Ativa primeiro a receção.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            wifi.discover();
+            message("Principal: repetida pesquisa de dispositivos Wi-Fi Direct.");
+        })));
+        discoveredList = new LinearLayout(this);
+        discoveredList.setOrientation(LinearLayout.VERTICAL);
+        card.addView(discoveredList);
         card.addView(button("DIAGNÓSTICO DO GRUPO WI-FI DIRECT", false, () -> ensureWifiPermission(() -> {
             wifi.diagnostic();
             wifi.checkConnection();
         })));
-        card.addView(sub("Os dois telemóveis podem estar associados a routers diferentes, mas para o primeiro teste experimenta desligar a associação aos routers (sem desligar o Wi-Fi dos telemóveis). Isto ajuda a diagnosticar possíveis limitações do fabricante."));
+        card.addView(sub("O rádio Wi-Fi deve estar ligado nos dois, mesmo sem ligação aos pontos de acesso. Se aparecer o nome do Secundário abaixo é sinal de que o Principal também o está a descobrir."));
         card.addView(button("VERIFICAR ESTADO DO EMPARELHAMENTO", false, () -> ensureWifiPermission(() -> {
             wifi.checkConnection();
             wifi.diagnostic();
@@ -430,7 +441,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
         runOnUiThread(() -> {
             // Never offer peer connection buttons on the Principal: it already
             // owns the Wi-Fi Direct group and simultaneous connect() calls race.
-            if (!SECONDARY.equals(role) || discoveredList == null) return;
+            if (role == null || discoveredList == null) return;
             // Refresh only when peers actually change. Recreating buttons on
             // every Wi-Fi peer broadcast can swallow touch-up and make taps fail.
             List<String> addresses = new ArrayList<>();
@@ -441,19 +452,24 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
             lastPeerSignature = signature;
             discoveredList.removeAllViews();
             if (devices.isEmpty()) {
-                discoveredList.addView(sub("Não há outros equipamentos Wi-Fi Direct visíveis. Faz nova pesquisa nos dois telemóveis e confirma a Localização ligada."));
+                discoveredList.addView(sub("Nenhum outro telemóvel detetado nesta pesquisa. O rádio Wi-Fi e a Localização devem estar ligados; repete a pesquisa em ambos."));
                 return;
             }
-            discoveredList.addView(sub("Encontrados " + devices.size() + " dispositivos. Escolhe apenas o outro telemóvel, não a TV."));
+            discoveredList.addView(sub("Encontrados " + devices.size() + " dispositivos Wi-Fi Direct." +
+                    (MAIN.equals(role) ? " Neste Principal não precisas tocar em ligar." : " Seleciona apenas o Principal, não a TV.")));
             for (WifiP2pDevice device : devices) {
                 String name = device.deviceName == null || device.deviceName.isEmpty()
                         ? "Dispositivo Android" : device.deviceName;
-                discoveredList.addView(button("LIGAR AO PRINCIPAL: " + name, false, () -> ensureWifiPermission(() -> {
-                    showConnectionStatus("A LIGAR AO PRINCIPAL: " + name + ". Aguarda a confirmação do Android no outro telemóvel.");
-                    Toast.makeText(this, "Pedido de ligação enviado a " + name, Toast.LENGTH_LONG).show();
-                    message("Secundário iniciou ligação ao " + name + ". Não carregues em ligar no Principal.");
-                    wifi.connectTo(device);
-                })));
+                if (MAIN.equals(role)) {
+                    discoveredList.addView(sub("Dispositivo detetado: " + name));
+                } else {
+                    discoveredList.addView(button("LIGAR AO PRINCIPAL: " + name, false, () -> ensureWifiPermission(() -> {
+                        showConnectionStatus("A LIGAR AO PRINCIPAL: " + name + ". Aguarda a confirmação do Android no outro telemóvel.");
+                        Toast.makeText(this, "Pedido de ligação enviado a " + name, Toast.LENGTH_LONG).show();
+                        message("Secundário iniciou ligação ao " + name + ". Não carregues em ligar no Principal.");
+                        wifi.connectTo(device);
+                    })));
+                }
             }
         });
     }

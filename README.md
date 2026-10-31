@@ -2,7 +2,7 @@
 
 **Android · Wi-Fi Direct · offline · fotografias num único sentido**
 
-Projeto Android independente, v1.0.0-alpha8 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
+Projeto Android independente, v1.0.0-alpha9 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
 
 | Papel | Pode fazer | Nunca faz |
 |---|---|---|
@@ -107,3 +107,14 @@ O workflow usa um **certificado privado de assinatura fixo**, guardado no GitHub
 **alpha7 → alpha8** requer uma última desinstalação devido à assinatura incompatível das versões anteriores. **alpha8 → versões posteriores** poderão atualizar por cima, sem perder dados, desde que mantenham o mesmo certificado, `applicationId` e código de versão superior.
 
 A chave de teste antiga, que chegou a estar num histórico de branch pública, não é usada. A chave alpha8 foi gerada de novo e a sua cópia privada deve ficar num backup protegido.
+
+## alpha9 — correção da descoberta Wi-Fi Direct
+
+A versão alpha6–alpha8 fazia o Principal chamar `createGroup()` antes de o Secundário descobrir o outro Android. A documentação Android descreve `createGroup()` sobretudo para grupos autónomos e dispositivos Wi-Fi tradicionais, e a formação do grupo termina a pesquisa P2P. Em alguns equipamentos isto pode impedir que o segundo Android encontre o Principal.
+
+- **Principal:** ATIVAR RECEÇÃO remove um eventual grupo autónomo anterior e inicia `discoverPeers()`. O Principal pode ver pares descobertos, mas não tem botões para se ligar; aguarda o convite do Secundário.
+- **Secundário:** PROCURAR DISPOSITIVOS -> LIGAR AO PRINCIPAL. O grupo é negociado durante `connect()` com preferência por Principal como group owner.
+- **Assinatura:** idêntica à alpha8, com secret fixo verificado pelo CI. A alpha9 deve poder ser instalada diretamente por cima da alpha8.
+- Se os dois Androids ainda não se virem, copiar diagnóstico de ambos após tentativa com Wi-Fi e Localização ligados, e sem associação aos routers. Identificar se `discoverPeers()` é iniciado, lista de pares e estado do grupo.
+
+Não se afirma compatibilidade física sem teste real no Redmi e no segundo Android.
