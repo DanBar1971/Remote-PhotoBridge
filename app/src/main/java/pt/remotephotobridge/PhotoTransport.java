@@ -318,18 +318,19 @@ final class PhotoTransport {
         }
         if (db.alreadyReceived(sha256)) return false;
         Destination destination = new Destination(filename, mime, dateTaken, sha256);
-        boolean good = false;
+        boolean finalized = false;
         try (InputStream source = context.getContentResolver().openInputStream(receivedUri)) {
             if (source == null) throw new IOException("Não foi possível abrir a fotografia recebida.");
             MessageDigest md = digest();
             copyExactly(source, destination.output, expectedBytes, md);
-            good = sha256.equals(hex(md.digest()));
-            if (!good) throw new IOException("SHA-256 não corresponde à fotografia original.");
+            if (!sha256.equals(hex(md.digest())))
+                throw new IOException("SHA-256 não corresponde à fotografia original.");
             destination.finish(true);
+            finalized = true;
             db.markReceived(sha256);
             return true;
         } finally {
-            if (!good) destination.closeIfIncomplete();
+            if (!finalized) destination.closeIfIncomplete();
         }
     }
 
