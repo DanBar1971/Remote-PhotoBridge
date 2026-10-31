@@ -417,7 +417,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
             }
             List<String> addresses = new ArrayList<>();
             for (WifiP2pDevice d : knownPeers.values())
-                addresses.add(d.deviceAddress + "/" + d.deviceName + "/" + d.status);
+                addresses.add(d.deviceAddress + "/" + d.deviceName);
             Collections.sort(addresses);
             String signature = android.text.TextUtils.join(";", addresses);
             if (signature.equals(lastPeerSignature) && discoveredList.getChildCount() > 0) return;
@@ -427,10 +427,16 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
                 discoveredList.addView(sub("À procura do outro telemóvel…"));
                 return;
             }
-            discoveredList.addView(sub("Telemóveis e dispositivos encontrados (última pesquisa):"));
+            discoveredList.addView(sub("Escolhe o outro telemóvel (só um lado deve iniciar a ligação):"));
+            int visiblePhones = 0;
             for (WifiP2pDevice d : knownPeers.values()) {
                 String name = d.deviceName == null || d.deviceName.isEmpty()
                         ? "Android próximo" : d.deviceName;
+                // TVs and smart displays are peers too, but they cannot run
+                // this app. Keep them out of the one-tap phone pairing list.
+                if (name.startsWith("[TV]") || name.startsWith("DIRECT-") && name.toLowerCase(Locale.ROOT).contains("tv"))
+                    continue;
+                visiblePhones++;
                 final boolean isPrincipal = MAIN.equals(role);
                 discoveredList.addView(button("LIGAR: " + name, false, () -> ensureWifiPermission(() -> {
                     if (isPrincipal && !accepting) {
@@ -442,6 +448,8 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
                     wifi.connectTo(d, isPrincipal);
                 })));
             }
+            if (visiblePhones == 0)
+                discoveredList.addView(sub("Só foram detetados equipamentos que não são Androids compatíveis (por exemplo, a TV). Repete a pesquisa."));
         });
     }
 
