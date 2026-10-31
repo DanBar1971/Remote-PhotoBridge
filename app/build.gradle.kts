@@ -53,4 +53,5 @@ android {
 dependencies {
     // Same Nearby Connections library used in the working SaúdePrática app.
     implementation("com.google.android.gms:play-services-nearby:19.3.0")
+    testImplementation("junit:junit:4.13.2")
 }
