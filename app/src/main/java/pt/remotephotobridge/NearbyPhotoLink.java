@@ -62,15 +62,15 @@ final class NearbyPhotoLink {
     private final Map<Long,String> fileOffers = new HashMap<>();
     private final Map<Long,Payload> inboundFiles = new HashMap<>();
     private final Map<Long,Boolean> completed = new HashMap<>();
-    private boolean receivingMode;
-    private boolean connected;
-    private boolean connecting;
-    private boolean busy;
+    private volatile boolean receivingMode;
+    private volatile boolean connected;
+    private volatile boolean connecting;
+    private volatile boolean busy;
     private String endpoint;
     private List<PhotoTransport.Photo> queue = new ArrayList<>();
     private int position, saved, skipped;
-    private String activeOffer;
-    private PhotoTransport.Photo activePhoto;
+    private volatile String activeOffer;
+    private volatile PhotoTransport.Photo activePhoto;
     private ParcelFileDescriptor activeDescriptor;
 
     NearbyPhotoLink(Context context, PhotoTransport photos, TransferDb db, Listener listener) {
@@ -138,8 +138,11 @@ final class NearbyPhotoLink {
             listener.peers(new HashMap<>(endpoints));
         }
         @Override public void onEndpointLost(String id) {
-            endpoints.remove(id);
-            if (!connected) listener.peers(new HashMap<>(endpoints));
+            // Keep the last discovered entry visible. Nearby discovery may
+            // temporarily report LOST while negotiating the same endpoint.
+            // The next user-initiated search clears the list.
+            if (!connected) listener.state("Dispositivo temporariamente fora da pesquisa: " +
+                    endpoints.getOrDefault(id, "Android") + ". Podes tentar ligar ou voltar a procurar.");
         }
     };
 
@@ -273,7 +276,9 @@ final class NearbyPhotoLink {
                 abort("Ficheiro interrompido. Podes repetir sem duplicar fotografias.");
                 return;
             }
-            if (update.getStatus() == PayloadTransferUpdate.Status.SUCCESS && receivingMode) {
+            if (update.getStatus() == PayloadTransferUpdate.Status.SUCCESS && receivingMode &&
+                    (inboundFiles.containsKey(update.getPayloadId()) ||
+                     fileOffers.containsKey(update.getPayloadId()))) {
                 completed.put(update.getPayloadId(), true);
                 attemptImport(update.getPayloadId());
             }
@@ -339,10 +344,11 @@ final class NearbyPhotoLink {
         worker.execute(() -> {
             boolean saved = false;
             String error = "";
+            Uri temporary = null;
             try {
-                Uri uri = file.asFile() == null ? null : file.asFile().asUri();
-                if (uri == null) throw new IOException("Nearby não forneceu o ficheiro recebido.");
-                saved = photos.saveNearbyPhoto(uri, metadata.getString("name"),
+                temporary = file.asFile() == null ? null : file.asFile().asUri();
+                if (temporary == null) throw new IOException("Nearby não forneceu o ficheiro recebido.");
+                saved = photos.saveNearbyPhoto(temporary, metadata.getString("name"),
                         metadata.getString("mime"), metadata.getLong("size"),
                         metadata.getLong("taken"), metadata.getString("hash"));
                 listener.state(saved ? "Fotografia guardada na Galeria do Principal." :
@@ -350,6 +356,12 @@ final class NearbyPhotoLink {
             } catch (Exception e) {
                 error = e.getMessage() == null ? "Falha ao importar na galeria" : e.getMessage();
                 listener.state("Não foi possível guardar fotografia: " + error);
+            }
+            // Nearby's downloaded temporary FILE is not the gallery image.
+            // Best-effort cleanup avoids duplicate copies in Downloads/.nearby.
+            if (temporary != null) {
+                try { context.getContentResolver().delete(temporary, null, null); }
+                catch (Exception ignored) { }
             }
             try {
                 sendControl(json("ack").put("id", offerId).put("ok", error.isEmpty())
