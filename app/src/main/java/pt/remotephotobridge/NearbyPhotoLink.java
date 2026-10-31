@@ -271,7 +271,7 @@ final class NearbyPhotoLink {
         }
         @Override public void onPayloadTransferUpdate(String id, PayloadTransferUpdate update) {
             if (!id.equals(endpoint)) return;
-            if (update.getStatus() == PayloadTransferUpdate.Status.ERROR ||
+            if (update.getStatus() == PayloadTransferUpdate.Status.FAILURE ||
                     update.getStatus() == PayloadTransferUpdate.Status.CANCELED) {
                 abort("Ficheiro interrompido. Podes repetir sem duplicar fotografias.");
                 return;
