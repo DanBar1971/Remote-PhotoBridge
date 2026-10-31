@@ -2,11 +2,11 @@
 
 **Android · Wi-Fi Direct · offline · fotografias num único sentido**
 
-Projeto Android independente, v1.0.0-alpha1 (fonte de protótipo). Um único APK instalado em dois Androids, cada um com um papel definido:
+Projeto Android independente, v1.0.0-alpha4 (teste de ligação). Um único APK instalado em dois Androids, cada um com um papel definido:
 
 | Papel | Pode fazer | Nunca faz |
 |---|---|---|
-| **Principal** | Criar grupo Wi-Fi Direct, mostrar PIN, receber, verificar e gravar fotos na galeria | Enviar fotos |
+| **Principal** | Descobrir/ligar por Wi-Fi Direct, mostrar PIN, receber, verificar e gravar fotos na galeria | Enviar fotos |
 | **Secundário** | Descobrir Principal, emparelhar e sincronizar as fotos da própria galeria | Receber ou gravar fotos do Principal |
 
 Não precisa de Internet, cartão SIM, dados móveis, conta Google, router, Bluetooth ou serviços Google Play. O `INTERNET` do Android Manifest é necessário **somente para abrir sockets TCP locais** sobre Wi-Fi Direct. Não contém servidores externos nem bibliotecas de telemetria.
@@ -23,11 +23,15 @@ Não precisa de Internet, cartão SIM, dados móveis, conta Google, router, Blue
 
 1. Instalar o mesmo APK nos dois Androids.
 2. Abrir em cada um e escolher o papel persistente: **PRINCIPAL** ou **SECUNDÁRIO**.
-3. No Principal, tocar **ATIVAR RECEÇÃO**. É criado um grupo Wi-Fi Direct; o ecrã mostra um **PIN temporário de 6 dígitos**.
-4. No Secundário, tocar **PROCURAR DISPOSITIVOS** e selecionar pelo nome o telemóvel Principal. Se o Android mostrar um pedido de ligação Wi-Fi Direct, aceitar.
-5. Quando o estado mostrar **Ligado**, introduzir o PIN e tocar **SINCRONIZAR FOTOGRAFIAS**.
+3. Em ambos os telemóveis, ligar o **Wi-Fi e a Localização do Android**. O Bluetooth não é necessário.
+4. No Principal tocar **ATIVAR RECEÇÃO**. Aparece o PIN temporário. O Principal **ainda não está ligado** só porque o PIN aparece.
+5. Tocar **PROCURAR** num dos telemóveis e selecionar **LIGAR A: [nome do outro Android]** (não escolher TVs). Basta tocar em ligar **num** dos lados. No outro, aceitar a janela de emparelhamento do Android se aparecer.
+6. Aguardar o estado **LIGADO** em ambos; a lista dos dispositivos já não deve desaparecer durante o toque.
+7. Só no Secundário introduzir o PIN e tocar **SINCRONIZAR FOTOGRAFIAS**.
+8. Se a negociação falhar, tocar **DESLIGAR / REINICIAR LIGAÇÃO** nos dois e repetir. No Principal existe ainda **MODO COMPATIBILIDADE · CRIAR GRUPO**, para testar em telemóveis difíceis.
+9. O botão **COPIAR DIAGNÓSTICO DA LIGAÇÃO**, no topo de cada app, permite partilhar mensagens e erros de emparelhamento.
 6. O Principal guarda os ficheiros exatamente como recebidos em `Pictures/Remote PhotoBridge`, indexados no MediaStore (galeria normal do Android).
-7. Repetir a sincronização quando quiser: ficheiros já recebidos (SHA-256) são **ignorados antes de enviar os seus bytes**. Uma interrupção pode ser recuperada repetindo a sincronização.
+10. Repetir a sincronização quando quiser: ficheiros já recebidos (SHA-256) são **ignorados antes de enviar os seus bytes**. Uma interrupção pode ser recuperada repetindo a sincronização.
 
 **Nunca se apagam as fotografias do Secundário.** Não existe funcionalidade para enviar fotos do Principal.
 
@@ -39,7 +43,7 @@ Não precisa de Internet, cartão SIM, dados móveis, conta Google, router, Blue
 - Enquanto o ficheiro está a ser recebido, fica pendente/oculto na galeria (Android 10+) e é removido em caso de corrupção/interrupção.
 - A cópia é feita em qualidade original, sem conversão nem compressão; os metadados embutidos permanecem nos bytes recebidos.
 - Aplicação sem anúncios, sem contas, sem analytics e sem envio de dados para destinos externos.
-- Os papéis só podem ser alterados com confirmação explícita.
+- Os papéis podem ser alterados pelo utilizador com o botão da aplicação; isso termina a ligação atual.
 
 ## Compilação
 
@@ -47,7 +51,7 @@ Não precisa de Internet, cartão SIM, dados móveis, conta Google, router, Blue
 - Gradle **8.10.2**, Android Gradle Plugin **8.8.2**.
 - Abrir a pasta do projeto no Android Studio, aguardar a sincronização de Gradle, e executar **Build > Build APK(s)**; ou em consola com Gradle instalado: `gradle assembleDebug`.
 - APK de teste gerado em `app/build/outputs/apk/debug/app-debug.apk`.
-- O workflow `.github/workflows/android-apk.yml` produz o **APK debug de teste** em **Actions > Artifacts** ao fazer push para `main`/`master`.
+- O workflow `.github/workflows/android-apk.yml` publica APK de teste em **GitHub Releases** e também em **Actions > Artifacts** ao alterar o código em `main`. Não sobrescreve uma release existente com outra assinatura de debug.
 - A chave debug é apenas para testes. Publicação estável requer definir chave de assinatura de release e protegê-la.
 
 ## Limitações atuais da versão alpha
@@ -72,3 +76,11 @@ Não precisa de Internet, cartão SIM, dados móveis, conta Google, router, Blue
 ## Licença
 
 Ainda não definida (projeto inicial, sem licença externa selecionada).
+
+## Histórico de correções
+
+- **alpha4:** evita que a lista de equipamentos seja recriada enquanto se toca num botão; feedback visual/tátil; interrompe pesquisa antes de solicitar emparelhamento; acompanha ligação, timeout e erros BUSY; mostra estado no topo; permite reiniciar e copiar diagnóstico.
+- **alpha3:** ambos os telemóveis descobrem outros dispositivos, e o Principal escuta num socket local mesmo quando o Android anonimiza o endereço do proprietário do grupo.
+- **alpha2:** substitui a janela de seleção inicial por ecrã completo.
+
+**Importante sobre atualização:** o GitHub Actions usa uma chave de debug temporária diferente em cada compilação. Por enquanto, é necessário desinstalar a versão alpha anterior antes de instalar uma nova. Uma assinatura fixa protegida por GitHub Secret está planeada, mas **não está ativa**; evita assumir atualizações por cima da aplicação atual. Desinstalar esta app não apaga as imagens da galeria, mas limpa as suas definições e histórico interno.
