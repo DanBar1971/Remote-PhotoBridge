@@ -1,9 +1,9 @@
 # Remote PhotoBridge — APK de testes
 
-Release verificada pelo workflow: https://github.com/DanBar1971/Remote-PhotoBridge/releases/tag/v1.0.0-alpha8
+Release verificada pelo workflow: https://github.com/DanBar1971/Remote-PhotoBridge/releases/tag/v1.0.0-alpha9
 
-APK: Remote-PhotoBridge-v1.0.0-alpha8-debug.apk
+APK: Remote-PhotoBridge-v1.0.0-alpha9-debug.apk
 
-SHA-256: 0100040e48523a29fbd33e8c9b79be33bf7c9cb14733d5d466197d4cdb4c0175
+SHA-256: 39b409cdc31346a2aa11a68a8f3b457694981d84677515f2ce0285c5b2cc764d
 
-Alpha8: assinatura fixa protegida por GitHub Actions Secret, certificado SHA-256 validado antes da publicação. A partir desta versão, atualizações com a mesma chave podem substituir a instalação existente; alpha7 requer uma última reinstalação.
+Alpha7: fluxo de emparelhamento com iniciador único no Secundário e diagnóstico separado Wi-Fi AP/P2P. Requer validação nos dois equipamentos físicos.
