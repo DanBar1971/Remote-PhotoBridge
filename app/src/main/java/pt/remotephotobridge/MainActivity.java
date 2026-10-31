@@ -4,6 +4,10 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
+import android.content.ClipData;
+import android.content.ActivityNotFoundException;
+import android.content.ContentValues;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
@@ -13,6 +17,9 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.net.Uri;
+import android.provider.MediaStore;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
@@ -30,6 +37,7 @@ import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -51,6 +59,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private static final int MUTED = Color.rgb(164, 179, 197);
     private static final String PRINCIPAL = "principal", SECONDARY = "secundario";
     private static final int PERMISSION_CODE = 2048;
+    private static final int CAMERA_REQUEST_CODE = 2050;
     private static final int[] DAYS = {1, 3, 7, 14, 30};
     private static final String[] PERIODS = {
             "Hoje", "Últimos 3 dias (inclui hoje)", "Últimos 7 dias (inclui hoje)",
@@ -67,6 +76,10 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private TextView statusView, detailsView;
     private LinearLayout peersView;
     private Spinner periodView;
+    private Button galleryButton;
+    private Uri capturedPhotoUri;
+    private Uri lastReceivedGalleryUri;
+    private Uri pendingCameraSyncUri;
     private boolean receiving;
     private final StringBuilder log = new StringBuilder();
 
@@ -74,6 +87,14 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         prefs = getSharedPreferences("photobridge_options", MODE_PRIVATE);
+        String previousReceived = prefs.getString("latest_gallery_photo", null);
+        if (previousReceived != null) lastReceivedGalleryUri = Uri.parse(previousReceived);
+        if (savedInstanceState != null) {
+            String pendingCapture = savedInstanceState.getString("captured_photo");
+            String pendingSync = savedInstanceState.getString("pending_camera_sync");
+            if (pendingCapture != null) capturedPhotoUri = Uri.parse(pendingCapture);
+            if (pendingSync != null) pendingCameraSyncUri = Uri.parse(pendingSync);
+        }
         role = getSharedPreferences("role", MODE_PRIVATE).getString("role", null);
         db = new TransferDb(this);
         photos = new PhotoTransport(this, db, this::state);
@@ -88,6 +109,12 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         nearby = new NearbyPhotoLink(this, photos, db, this);
         if (PRINCIPAL.equals(role) || SECONDARY.equals(role)) render();
         else showRoleChooser();
+    }
+
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (capturedPhotoUri != null) outState.putString("captured_photo", capturedPhotoUri.toString());
+        if (pendingCameraSyncUri != null) outState.putString("pending_camera_sync", pendingCameraSyncUri.toString());
     }
 
     @Override protected void onDestroy() {
@@ -141,6 +168,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         log.setLength(0);
         peersView = null;
         periodView = null;
+        galleryButton = null;
         LinearLayout root = screen();
         LinearLayout roleCard = card(root);
         roleCard.addView(text(PRINCIPAL.equals(role) ? "TELEMÓVEL PRINCIPAL" : "TELEMÓVEL SECUNDÁRIO", 17, ACCENT, true));
@@ -206,6 +234,9 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
             receiving = true;
             nearby.receive();
         })));
+        galleryButton = button("MOSTRAR GALERIA", false, this::showReceivedGallery);
+        galleryButton.setVisibility(prefs.getBoolean("received_gallery_photo", false) ? View.VISIBLE : View.GONE);
+        card.addView(galleryButton);
         card.addView(note("2. Confirma no ecrã o mesmo código de segurança apresentado no Secundário."));
         card.addView(note("3. As fotografias recebidas são guardadas em Galeria → Pictures / Remote PhotoBridge. Os originais ficam no Secundário."));
     }
@@ -222,7 +253,10 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         card.addView(peersView);
 
         LinearLayout send = card(root);
-        send.addView(text("2. ESCOLHER FOTOGRAFIAS", 18, TEXT, true));
+        send.addView(text("2. CÂMARA E FOTOGRAFIAS", 18, TEXT, true));
+        send.addView(note("Tira uma fotografia com a câmara do telemóvel. Fica primeiro guardada na Galeria; só é enviada se confirmares."));
+        send.addView(button("ABRIR CÂMARA", true, this::openCamera));
+        send.addView(text("Escolher período para outras fotografias", 16, TEXT, true));
         send.addView(note("Só serão enviadas fotografias do período indicado. A opção inicial é Hoje. Nunca envia toda a galeria."));
         ArrayAdapter<String> periods = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, PERIODS) {
             @Override public View getView(int position, View convertView, ViewGroup parent) {
@@ -390,10 +424,189 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         state(PRINCIPAL.equals(role) ?
                 "LIGADO. Principal pronto para receber e guardar fotografias na Galeria." :
                 "LIGADO. Escolhe o período e sincroniza as fotografias.");
+        if (SECONDARY.equals(role) && pendingCameraSyncUri != null)
+            promptPendingCameraPhoto();
+    }
+
+    @Override public void photoReceived(Uri galleryUri) {
+        if (!PRINCIPAL.equals(role)) return;
+        runOnUiThread(() -> {
+            if (galleryUri != null) {
+                lastReceivedGalleryUri = galleryUri;
+                prefs.edit().putString("latest_gallery_photo", galleryUri.toString()).apply();
+            }
+            prefs.edit().putBoolean("received_gallery_photo", true).apply();
+            if (galleryButton != null) galleryButton.setVisibility(View.VISIBLE);
+        });
     }
 
     @Override public void disconnected() {
         state("Ligação terminada. Podes voltar a iniciar o emparelhamento.");
+    }
+
+    /**
+     * Open the received photo through the Android Gallery / installed image
+     * viewer. Do not upload anything to Google Photos or external services.
+     */
+    private void showReceivedGallery() {
+        if (!PRINCIPAL.equals(role)) return;
+        if (lastReceivedGalleryUri != null) {
+            Intent view = new Intent(Intent.ACTION_VIEW);
+            view.setDataAndType(lastReceivedGalleryUri, "image/*");
+            view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            try {
+                startActivity(view);
+                return;
+            } catch (ActivityNotFoundException | SecurityException ignored) {
+                // The photo may have been moved/deleted since the last sync.
+            }
+        }
+        try {
+            Intent gallery = new Intent(Intent.ACTION_MAIN);
+            gallery.addCategory(Intent.CATEGORY_APP_GALLERY);
+            startActivity(gallery);
+        } catch (ActivityNotFoundException err) {
+            try {
+                Intent browse = new Intent(Intent.ACTION_VIEW);
+                browse.setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*");
+                startActivity(browse);
+            } catch (Exception unavailable) {
+                state("Não encontrei uma aplicação de Galeria. Abre a Galeria do Android e procura Pictures / Remote PhotoBridge.");
+            }
+        }
+    }
+
+    /** Opens the phone's installed camera, requesting full-resolution output. */
+    private void openCamera() {
+        if (!SECONDARY.equals(role)) return;
+        if (Build.VERSION.SDK_INT <= 28 &&
+                checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            askPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, this::openCamera);
+            return;
+        }
+        Intent capture = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        Uri destination = null;
+        try {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME,
+                    "PhotoBridge_" + System.currentTimeMillis() + ".jpg");
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            values.put(MediaStore.Images.Media.DATE_TAKEN, System.currentTimeMillis());
+            if (Build.VERSION.SDK_INT >= 29) {
+                values.put(MediaStore.Images.Media.RELATIVE_PATH,
+                        Environment.DIRECTORY_DCIM + "/Remote PhotoBridge");
+                values.put(MediaStore.Images.Media.IS_PENDING, 1);
+            }
+            destination = getContentResolver().insert(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (destination == null) throw new IllegalStateException("Não foi possível criar a fotografia.");
+            capturedPhotoUri = destination;
+            capture.putExtra(MediaStore.EXTRA_OUTPUT, destination);
+            capture.setClipData(ClipData.newUri(getContentResolver(), "Foto", destination));
+            capture.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            startActivityForResult(capture, CAMERA_REQUEST_CODE);
+        } catch (ActivityNotFoundException | SecurityException | IllegalStateException error) {
+            if (destination != null) deleteCapturedPlaceholder(destination);
+            capturedPhotoUri = null;
+            state("Não foi possível abrir a Câmara: " + error.getMessage());
+        }
+    }
+
+    private void deleteCapturedPlaceholder(Uri uri) {
+        try { getContentResolver().delete(uri, null, null); }
+        catch (Exception ignored) { }
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != CAMERA_REQUEST_CODE) return;
+        final Uri photoUri = capturedPhotoUri;
+        capturedPhotoUri = null;
+        if (photoUri == null) {
+            state("A Câmara não devolveu uma fotografia.");
+            return;
+        }
+        if (resultCode != RESULT_OK) {
+            deleteCapturedPlaceholder(photoUri);
+            state("Fotografia cancelada. Não foi enviada nenhuma imagem.");
+            return;
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                ContentValues ready = new ContentValues();
+                ready.put(MediaStore.Images.Media.IS_PENDING, 0);
+                if (getContentResolver().update(photoUri, ready, null, null) < 1)
+                    throw new IllegalStateException("Falhou a publicação da fotografia na Galeria.");
+            }
+        } catch (Exception e) {
+            deleteCapturedPlaceholder(photoUri);
+            state("A fotografia não pôde ser guardada: " + e.getMessage());
+            return;
+        }
+        executor.execute(() -> {
+            try {
+                PhotoTransport.Photo captured = photos.photoForCapturedUri(photoUri);
+                runOnUiThread(() -> confirmCameraSync(captured));
+            } catch (Exception error) {
+                runOnUiThread(() -> state("Câmara: " + error.getMessage() +
+                        ". Verifica a fotografia na Galeria."));
+            }
+        });
+    }
+
+    private void confirmCameraSync(PhotoTransport.Photo captured) {
+        if (!SECONDARY.equals(role)) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Fotografia guardada!")
+                .setMessage("A fotografia está na Galeria deste telemóvel. Queres sincronizar APENAS esta fotografia com o Principal?")
+                .setNegativeButton("Mais tarde", (d, which) ->
+                        state("Fotografia guardada. Não foi enviada."))
+                .setPositiveButton("Sincronizar", (d, which) -> {
+                    if (nearby != null && nearby.isConnected() && !nearby.isBusy()) {
+                        nearby.sendPhotos(Collections.singletonList(captured));
+                    } else {
+                        pendingCameraSyncUri = captured.uri;
+                        new AlertDialog.Builder(this)
+                                .setTitle("Ligar ao Principal")
+                                .setMessage("Fotografia pronta, mas os telemóveis ainda não estão ligados (ou existe um envio em curso). Queres procurar o Principal agora? A fotografia só será enviada após nova confirmação.")
+                                .setNegativeButton("Mais tarde", (dialog, i) -> {
+                                    pendingCameraSyncUri = null;
+                                    state("Fotografia guardada, sem enviar.");
+                                })
+                                .setPositiveButton("Procurar Principal", (dialog, i) -> {
+                                    if (nearby.isConnected()) {
+                                        state("Aguarda o fim da transferência atual.");
+                                    } else {
+                                        withNearbyPermissions(() -> nearby.search());
+                                    }
+                                }).show();
+                    }
+                }).show();
+    }
+
+    private void promptPendingCameraPhoto() {
+        final Uri pending = pendingCameraSyncUri;
+        if (pending == null) return;
+        pendingCameraSyncUri = null;
+        executor.execute(() -> {
+            try {
+                PhotoTransport.Photo captured = photos.photoForCapturedUri(pending);
+                runOnUiThread(() -> {
+                    if (nearby == null || !nearby.isConnected()) return;
+                    new AlertDialog.Builder(this)
+                            .setTitle("Enviar a fotografia tirada?")
+                            .setMessage("Ligação estabelecida. Enviar APENAS a fotografia que acabaste de tirar?")
+                            .setNegativeButton("Não enviar", null)
+                            .setPositiveButton("Enviar fotografia", (dialog, i) -> {
+                                if (!nearby.isBusy()) nearby.sendPhotos(Collections.singletonList(captured));
+                                else state("Há outra transferência em curso. Repete o envio mais tarde.");
+                            }).show();
+                });
+            } catch (Exception error) {
+                state("A fotografia não está pronta para enviar: " + error.getMessage());
+            }
+        });
     }
 
     private LinearLayout card(LinearLayout root) {
