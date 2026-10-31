@@ -1,133 +1,52 @@
-# Remote PhotoBridge
+# Remote PhotoBridge — Android
 
-**Android · Wi-Fi Direct · offline · fotografias num único sentido**
+Transferência local de fotografias originais do telemóvel **Secundário (só envia)** para o **Principal (só recebe)**, sem Internet, sem SIM, sem conta cloud e sem necessidade de ambos estarem ligados ao mesmo router.
 
-Projeto Android independente, v1.0.0-alpha10 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
+## Fluxo da alpha11
 
-| Papel | Pode fazer | Nunca faz |
-|---|---|---|
-| **Principal** | Descobrir/ligar por Wi-Fi Direct, mostrar PIN, receber, verificar e gravar fotos na galeria | Enviar fotos |
-| **Secundário** | Descobrir Principal, emparelhar e sincronizar as fotos da própria galeria | Receber ou gravar fotos do Principal |
+Nesta versão, a ligação foi migrada do controlo Wi-Fi Direct manual (que falhava nos testes Redmi) para **Google Nearby Connections**: o mesmo sistema que funciona na sincronização da SaúdePrática. Utiliza Bluetooth e Wi-Fi automaticamente, sem dados móveis. Necessita de Google Play Services instalado e atualizado. **A biblioteca não garante forçar exclusivamente o transporte Wi-Fi Direct.**
 
-Não precisa de Internet, cartão SIM, dados móveis, conta Google, router, Bluetooth ou serviços Google Play. O `INTERNET` do Android Manifest é necessário **somente para abrir sockets TCP locais** sobre Wi-Fi Direct. Não contém servidores externos nem bibliotecas de telemetria.
+1. Instalar a mesma APK em ambos (desde a alpha8, a assinatura é fixa e aceita atualização por cima).
+2. Principal: **RECEBER FOTOGRAFIAS**, fica visível por Nearby.
+3. Secundário: **PROCURAR PRINCIPAL**, tocar no telemóvel que anuncia Remote PhotoBridge.
+4. Comparar os códigos de segurança nos **dois telemóveis** e confirmar apenas se forem iguais.
+5. Secundário: escolher o período:
+   - **Hoje** (valor inicial): desde a meia-noite local.
+   - **Últimos 3 dias**, **7 dias**, **14 dias** ou **30 dias**, incluindo hoje.
+6. **VER FOTOS DESTE PERÍODO** para conhecer a quantidade, depois **SINCRONIZAR FOTOGRAFIAS** e confirmar tamanho e número.
+7. O Principal guarda cada imagem validada por SHA-256 na Galeria, em `Pictures/Remote PhotoBridge`. Os originais continuam no Secundário; fotos com hash já recebido não são guardadas de novo.
 
-## Requisitos
+### Política de datas
 
-- Dois smartphones com **Wi-Fi Direct** suportado pelo fabricante; Android **8.0 (API 26)** ou superior.
-- Wi-Fi ativo nos dois; descoberta de dispositivos pode requerer **Localização** ativa, embora não use localização na app.
-- APK instalado nos dois (o Secundário pode ser instalado inicialmente por USB / ADB, sem Internet).
-- Principal: espaço livre na galeria; no Android 8/9, autorização de escrita no armazenamento.
-- Secundário: permissão para aceder a fotografias. No Android 14+, podes autorizar **todas** ou apenas **fotografias selecionadas**; com acesso parcial, só se transferem as autorizadas.
+- **Nunca existe opção de transferir toda a galeria.**
+- O filtro é aplicado no Secundário **antes de calcular os hashes ou enviar ficheiros**.
+- Usa `MediaStore.Images.Media.DATE_TAKEN` em milissegundos; apenas quando ausente, usa `DATE_ADDED` em segundos. Datas são convertidas para os dias do fuso horário local.
+- Se a data de uma imagem estiver errada nos metadados Android, pode cair fora do intervalo; não envia imagens mais antigas por acidente.
+- Inclui fotografias a que a aplicação tem acesso. No Android com acesso limitado à galeria, só envia imagens explicitamente autorizadas.
 
-## Utilização (v1)
+### Galeria do Principal
 
-1. Instalar o mesmo APK nos dois Androids.
-2. Abrir em cada um e escolher o papel persistente: **PRINCIPAL** ou **SECUNDÁRIO**.
-3. Em ambos os telemóveis, ligar o **Wi-Fi e a Localização do Android**. O Bluetooth não é necessário.
-4. No Principal tocar **ATIVAR RECEÇÃO**. O Android começa a criar um grupo Wi-Fi Direct e este passa a aguardar o Secundário. O PIN temporário não significa que exista uma ligação.
-5. **Só no Secundário**, tocar **PROCURAR DISPOSITIVOS**, selecionar **LIGAR AO PRINCIPAL: [nome do Principal]** (não escolher TVs), uma vez, e aceitar o convite Wi-Fi Direct no Principal, se aparecer. O Principal já tem o grupo criado e NÃO deve iniciar um segundo pedido em simultâneo.
-6. Aguardar o estado **LIGADO** em ambos; a lista dos dispositivos já não deve desaparecer durante o toque.
-7. No Secundário, introduzir o PIN e tocar primeiro em **TESTAR COMUNICAÇÃO (SEM ENVIAR FOTOS)**. Se indicar TESTE OK, tocar em **SINCRONIZAR FOTOGRAFIAS**.
-8. Se a negociação falhar, tocar **DESLIGAR / REINICIAR LIGAÇÃO** nos dois e repetir. No Principal existe ainda **MODO COMPATIBILIDADE · CRIAR GRUPO**, para testar em telemóveis difíceis.
-9. O botão **COPIAR DIAGNÓSTICO DA LIGAÇÃO**, no topo de cada app, permite partilhar mensagens e erros de emparelhamento.
-6. O Principal guarda os ficheiros exatamente como recebidos em `Pictures/Remote PhotoBridge`, indexados no MediaStore (galeria normal do Android).
-10. Repetir a sincronização quando quiser: ficheiros já recebidos (SHA-256) são **ignorados antes de enviar os seus bytes**. Uma interrupção pode ser recuperada repetindo a sincronização.
+As imagens recebidas são inseridas por `MediaStore` em `Pictures/Remote PhotoBridge`, com o `MIME_TYPE`, `DATE_TAKEN` e `IS_PENDING` atualizados. O sistema Android indexa-as para Galeria/Google Fotos local. São copiadas em qualidade original, byte a byte; só ficam visíveis após SHA-256 corresponder. Transferências incompletas não ficam publicadas. Em versões antigas do Android usa a digitalização multimédia.
 
-**Nunca se apagam as fotografias do Secundário.** Não existe funcionalidade para enviar fotos do Principal.
+### Segurança e sentido único
 
-## Segurança, privacidade e integridade
+- Só o Secundário chama `sendPhotos` e lê a sua galeria.
+- Só o Principal aceita e grava payloads FILE.
+- A autenticação Nearby mostra dígitos iguais nos dois dispositivos, que têm de ser confirmados explicitamente.
+- A descoberta é limitada ao identificador específico do serviço Remote PhotoBridge: televisões e outras apps não surgem.
+- A app não precisa de acesso à Internet para a troca, mas depende da presença prévia dos serviços Google Play.
+- Sem eliminação automática de fotografias em nenhum dos equipamentos.
 
-- Wi-Fi Direct usa WPA2 na ligação P2P; aplicação adicionalmente exige PIN temporário do Principal.
-- Ligação TCP local **porta 38988**, no endereço Wi-Fi Direct do Principal; não existe cloud.
-- Checksum SHA-256 de cada fotografia, calculado no Secundário e validado no Principal após receção.
-- Enquanto o ficheiro está a ser recebido, fica pendente/oculto na galeria (Android 10+) e é removido em caso de corrupção/interrupção.
-- A cópia é feita em qualidade original, sem conversão nem compressão; os metadados embutidos permanecem nos bytes recebidos.
-- Aplicação sem anúncios, sem contas, sem analytics e sem envio de dados para destinos externos.
-- Os papéis podem ser alterados pelo utilizador com o botão da aplicação; isso termina a ligação atual.
+## Testes de desenvolvimento
 
-## Compilação
+`PhotoDateRangeTest` confirma Hoje, últimos três dias, passagem de mês e mudança de hora e que um pedido “toda a galeria” não é permitido.
 
-- Android Studio com JDK 17 e Android SDK 35.
-- Gradle **8.10.2**, Android Gradle Plugin **8.8.2**.
-- Abrir a pasta do projeto no Android Studio, aguardar a sincronização de Gradle, e executar **Build > Build APK(s)**; ou em consola com Gradle instalado: `gradle assembleDebug`.
-- APK de teste gerado em `app/build/outputs/apk/debug/app-debug.apk`.
-- O workflow `.github/workflows/android-apk.yml` publica APK em **GitHub Releases**, mas só quando o segredo de assinatura fixa estiver configurado. Segue [SIGNING_SETUP.md](SIGNING_SETUP.md). Não sobrescreve uma release existente com outra assinatura de debug.
-- A chave debug é apenas para testes. Publicação estável requer definir chave de assinatura de release e protegê-la.
+O workflow `.github/workflows/validate-android-pr.yml` executa testes e compilação antes do merge. Depois de integrar na branch principal, `.github/workflows/android-apk.yml` compila com a **chave privada fixa**, verifica a assinatura SHA-256 e publica `Remote-PhotoBridge-v1.0.0-alpha11-debug.apk` numa pré-release.
 
-## Limitações atuais da versão alpha
+**Importante:** testes automáticos/compilação não substituem um teste real de emparelhamento, transferência, deduplicação e visualização na galeria nos dois telemóveis. Esta é uma versão alpha.
 
-- **Código preparado mas ainda não validado em dois telemóveis reais**. A compilação poderá ser verificada pelo GitHub Actions.
-- Requer aplicação aberta nos dois equipamentos durante a ligação; não existe sincronização em segundo plano ou arranque automático.
-- Sincroniza todas as imagens da galeria às quais o Secundário tenha acesso, não apenas novas da câmara. O Principal descarta as já recebidas antes de transferir os dados.
-- Se as fotos forem removidas do Principal **por fora da app**, a base local de hashes continuará a lembrar-se delas; uma futura opção de reparação/reverificação da galeria deve ser acrescentada.
-- Compatibilidade Wi-Fi Direct depende de fabricantes, versões de Android e estados das interfaces rádio. Alguns equipamentos obrigam a ativar Localização para descoberta.
-- O código de 6 dígitos é adequado para emparelhamento de proximidade com P2P protegido, mas é uma versão inicial: uma versão pública deve acrescentar autenticação mútua robusta e proteção contra tentativas repetidas.
-- Se a app for encerrada/recriada durante a transferência, pode ser preciso reabrir e emparelhar de novo.
-- Ainda não suporta vídeo, seleção manual por álbum, sincronização programada ou confirmação de espaço livre antes de iniciar a cópia.
+## Repositório
 
-## Estrutura
+https://github.com/DanBar1971/Remote-PhotoBridge
 
-- `MainActivity.java` — seleção de função e UI PT-PT.
-- `WifiDirectLink.java` — descoberta/criação de grupo e conexão Wi-Fi Direct.
-- `PhotoTransport.java` — TCP local, protocolo, PIN, SHA-256, envio/receção e MediaStore.
-- `TransferDb.java` — histórico de hashes recebidos e cache de hashes de origem.
-- `.github/workflows/android-apk.yml` — build de APK debug no GitHub.
-
-## Licença
-
-Ainda não definida (projeto inicial, sem licença externa selecionada).
-
-## Histórico de correções
-
-- **alpha6:** o Principal cria um grupo Wi-Fi Direct como proprietário por defeito, com diagnóstico detalhado de proprietário, clientes e estados; teste de comunicação com PIN sem enviar fotografias e botões sem corte.
-- **alpha5:** verifica o emparelhamento até 90 s, mostra estados Wi-Fi Direct do Android, separa grupo vazio de cliente realmente ligado e permite consultar o estado em ambos os telemóveis.
-- **alpha4:** evita que a lista de equipamentos seja recriada enquanto se toca num botão; feedback visual/tátil; interrompe pesquisa antes de solicitar emparelhamento; acompanha ligação, timeout e erros BUSY; mostra estado no topo; permite reiniciar e copiar diagnóstico.
-- **alpha3:** ambos os telemóveis descobrem outros dispositivos, e o Principal escuta num socket local mesmo quando o Android anonimiza o endereço do proprietário do grupo.
-- **alpha2:** substitui a janela de seleção inicial por ecrã completo.
-
-**Importante sobre atualização:** o GitHub Actions usa uma chave de debug temporária diferente em cada compilação. Por enquanto, é necessário desinstalar a versão alpha anterior antes de instalar uma nova. Uma assinatura fixa protegida por GitHub Secret está planeada, mas **não está ativa**; evita assumir atualizações por cima da aplicação atual. Desinstalar esta app não apaga as imagens da galeria, mas limpa as suas definições e histórico interno.
-
-## Diagnóstico AP vs Wi-Fi Direct (alpha7)
-
-Dois telemóveis em pontos de acesso diferentes **não deveriam precisar de estar na mesma WLAN** para usar Wi-Fi Direct, mas algumas implementações Wi-Fi não suportam bem ligação simultânea a um router e a um grupo P2P. Para isolar o problema:
-
-1. Em ambos: **Definições > Wi-Fi**, terminar temporariamente a associação ao router/AP e impedir que o telemóvel se ligue automaticamente a essa rede. **Manter o rádio Wi-Fi ligado** e Localização ativa.
-2. Em ambos: DESLIGAR/REINICIAR LIGAÇÃO, aguardar a confirmação e manter a app aberta.
-3. No Principal: ATIVAR RECEÇÃO (cria o grupo, não pesquisar nem tocar em LIGAR).
-4. No Secundário: PROCURAR DISPOSITIVOS e LIGAR AO PRINCIPAL **uma única vez**. Aceitar a janela nativa do Android se aparecer.
-5. Nos dois, RECOLHER DIAGNÓSTICO DO WI-FI, depois COPIAR DIAGNÓSTICO DA LIGAÇÃO para inspecionar o resultado. Se o Principal tiver zero clientes e o Secundário 'convite pendente', o bloqueio está na negociação Android P2P, não no PIN ou na galeria.
-6. No fim, voltar a associar cada telemóvel ao seu ponto de acesso normal.
-
-- **alpha7:** remove ligação iniciada no Principal para impedir pedidos concorrentes; distingue explicitamente Wi-Fi normal e Wi-Fi Direct no diagnóstico.
-
-## Atualizações sobre a instalação existente (alpha8 e futuras)
-
-O workflow usa um **certificado privado de assinatura fixo**, guardado no GitHub Actions Secret `RPB_ANDROID_SIGNING_BUNDLE`. Para compilar e publicar um APK válido, o CI verifica o fingerprint exato do certificado. O segredo é configurado uma única vez e nunca deve entrar no repositório público. Consulta [SIGNING_SETUP.md](SIGNING_SETUP.md).
-
-**alpha7 → alpha8** requer uma última desinstalação devido à assinatura incompatível das versões anteriores. **alpha8 → versões posteriores** poderão atualizar por cima, sem perder dados, desde que mantenham o mesmo certificado, `applicationId` e código de versão superior.
-
-A chave de teste antiga, que chegou a estar num histórico de branch pública, não é usada. A chave alpha8 foi gerada de novo e a sua cópia privada deve ficar num backup protegido.
-
-## alpha9 — correção da descoberta Wi-Fi Direct
-
-A versão alpha6–alpha8 fazia o Principal chamar `createGroup()` antes de o Secundário descobrir o outro Android. A documentação Android descreve `createGroup()` sobretudo para grupos autónomos e dispositivos Wi-Fi tradicionais, e a formação do grupo termina a pesquisa P2P. Em alguns equipamentos isto pode impedir que o segundo Android encontre o Principal.
-
-- **Principal:** ATIVAR RECEÇÃO remove um eventual grupo autónomo anterior e inicia `discoverPeers()`. O Principal pode ver pares descobertos, mas não tem botões para se ligar; aguarda o convite do Secundário.
-- **Secundário:** PROCURAR DISPOSITIVOS -> LIGAR AO PRINCIPAL. O grupo é negociado durante `connect()` com preferência por Principal como group owner.
-- **Assinatura:** idêntica à alpha8, com secret fixo verificado pelo CI. A alpha9 deve poder ser instalada diretamente por cima da alpha8.
-- Se os dois Androids ainda não se virem, copiar diagnóstico de ambos após tentativa com Wi-Fi e Localização ligados, e sem associação aos routers. Identificar se `discoverPeers()` é iniciado, lista de pares e estado do grupo.
-
-Não se afirma compatibilidade física sem teste real no Redmi e no segundo Android.
-
-## alpha10 — emparelhamento simples
-
-- Principal: tocar em **ATIVAR RECEÇÃO E PROCURAR**. Se surgir o Secundário, pode tocar **LIGAR: Android_6950**. Isto inicia apenas o emparelhamento; o Principal continua sem poder enviar fotografias.
-- Secundário: tocar em **PROCURAR TELEMÓVEL PRINCIPAL** e **LIGAR: Redmi Note 13 Pro**, caso este seja o dispositivo que inicia a ligação.
-- **Apenas um dos dois telemóveis deve tocar em LIGAR por tentativa**. O outro aguarda o pedido do Android.
-- A lista conserva os últimos dispositivos encontrados durante atualizações temporariamente vazias. TVs deixam de aparecer nos botões.
-- Após a confirmação do grupo, o Secundário introduz o PIN e toca em **ENVIAR FOTOGRAFIAS**.
-- Diagnóstico e reinício estão em **DETALHES E DIAGNÓSTICO**, fora da interface normal.
-- Listener Wi-Fi Direct continua registado durante pedidos nativos de emparelhamento.
-- Certificado privado fixo desde alpha8, instalar alpha10 **por cima** da alpha9 sem desinstalar.
-
-A ligação real ainda não foi validada; o botão de ligar inicia a negociação mas não prova que o grupo Wi-Fi Direct esteja estabelecido.
+Chave de assinatura privada guardada em GitHub Actions Secret `RPB_ANDROID_SIGNING_BUNDLE`. Não publicar ficheiros de assinatura no código-fonte.
