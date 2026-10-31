@@ -68,12 +68,12 @@ jobs:
       - name: Prepare release APK
         run: |
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk Remote-PhotoBridge-v1.0.0-alpha9-debug.apk
-          sha256sum Remote-PhotoBridge-v1.0.0-alpha9-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk Remote-PhotoBridge-v1.0.0-alpha10-debug.apk
+          sha256sum Remote-PhotoBridge-v1.0.0-alpha10-debug.apk
           # Refuse to release anything signed with the ephemeral runner debug key.
           apksigner="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/35.0.0/apksigner"
           test -x "$apksigner"
-          cert="$("$apksigner" verify --print-certs Remote-PhotoBridge-v1.0.0-alpha9-debug.apk |
+          cert="$("$apksigner" verify --print-certs Remote-PhotoBridge-v1.0.0-alpha10-debug.apk |
             sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
           expected="cf7b070bc2622c2f48aa71d7d08f9f572dff04d1d5e547b29d201f24c6761f47"
           echo "Certificate SHA-256: $cert"
@@ -84,8 +84,8 @@ jobs:
       - name: Keep Actions build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Remote-PhotoBridge-v1.0.0-alpha9-debug
-          path: Remote-PhotoBridge-v1.0.0-alpha9-debug.apk
+          name: Remote-PhotoBridge-v1.0.0-alpha10-debug
+          path: Remote-PhotoBridge-v1.0.0-alpha10-debug.apk
           if-no-files-found: error
           retention-days: 30
       - name: Publish APK to GitHub Releases
@@ -94,8 +94,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="v1.0.0-alpha9"
-          apk="Remote-PhotoBridge-v1.0.0-alpha9-debug.apk"
+          tag="v1.0.0-alpha10"
+          apk="Remote-PhotoBridge-v1.0.0-alpha10-debug.apk"
           if gh release view "$tag" >/dev/null 2>&1; then
             if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$apk"; then
               echo "APK already published for this version. Refusing to overwrite with another debug signature."
@@ -103,7 +103,7 @@ jobs:
             fi
             gh release upload "$tag" "$apk"
           else
-            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Remote PhotoBridge v1.0.0-alpha9" --notes "Remote PhotoBridge alpha9: corrige descoberta entre dois Androids. O Principal deixa de criar grupo autónomo automaticamente, limpa grupos antigos e usa discoverPeers; Secundário continua a ser o único iniciador de connect(). Mostra lista de peers também no Principal, sem botões de ligação. APK assinado com a mesma chave fixa da alpha8: instalação por cima sem desinstalar. Transmissão unidirecional Secundário para Principal. Wi-Fi Direct ainda requer teste nos dois telemóveis físicos." --prerelease
+            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Remote PhotoBridge v1.0.0-alpha10" --notes "Remote PhotoBridge alpha10: interface simplificada para Ativar Receção, escolher Android e enviar fotos. Principal também pode iniciar emparelhamento quando encontra o Secundário; envio de fotografias permanece exclusivamente Secundário para Principal. Lista de dispositivos não desaparece com pesquisas vazias, TVs ocultadas, receiver P2P mantido durante janelas do Android. Diagnóstico em secção avançada. Certificado fixo desde alpha8, atualização direta. Ligação física ainda requer validação." --prerelease
           fi
           gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$apk"
           echo "Release publicada e APK confirmado em:"
@@ -114,17 +114,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          url="$(gh release view v1.0.0-alpha9 --json url --jq '.url')"
+          url="$(gh release view v1.0.0-alpha10 --json url --jq '.url')"
           cat > RELEASE_STATUS.md <<EOF
           # Remote PhotoBridge — APK de testes
 
           Release verificada pelo workflow: $url
 
-          APK: Remote-PhotoBridge-v1.0.0-alpha9-debug.apk
+          APK: Remote-PhotoBridge-v1.0.0-alpha10-debug.apk
 
-          SHA-256: $(sha256sum Remote-PhotoBridge-v1.0.0-alpha9-debug.apk | cut -d' ' -f1)
+          SHA-256: $(sha256sum Remote-PhotoBridge-v1.0.0-alpha10-debug.apk | cut -d' ' -f1)
 
-          Alpha7: fluxo de emparelhamento com iniciador único no Secundário e diagnóstico separado Wi-Fi AP/P2P. Requer validação nos dois equipamentos físicos.
+          Alpha10: interface simplificada e lista de peers persistente; Principal ou Secundário pode iniciar uma única ligação. Certificado fixo desde alpha8.
           EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
