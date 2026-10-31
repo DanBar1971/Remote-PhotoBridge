@@ -29,6 +29,7 @@ import java.net.SocketException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -105,7 +106,7 @@ final class PhotoTransport {
                 out.writeUTF(pin);
                 out.flush();
                 if (!"READY".equals(in.readUTF())) throw new IOException("PIN incorreto ou ligação não autorizada.");
-                List<Photo> photos = getPhotos();
+                List<Photo> photos = getPhotos(1); // Legacy socket path fails closed to TODAY only.
                 msg("Foram encontradas " + photos.size() + " fotografias acessíveis.");
                 out.writeInt(photos.size());
                 out.flush();
@@ -233,7 +234,7 @@ final class PhotoTransport {
         msg("RECEÇÃO CONCLUÍDA: " + saved + " novas fotos; " + duplicates + " repetidas ignoradas.");
     }
 
-    private String photoHash(Photo p) throws IOException {
+    String photoHash(Photo p) throws IOException {
         String existing = db.knownSourceHash(p.id, p.size, p.modified);
         if (existing != null) return existing;
         MessageDigest digest = digest();
@@ -246,33 +247,86 @@ final class PhotoTransport {
         return hash;
     }
 
-    private List<Photo> getPhotos() {
+    /**
+     * Date range is ALWAYS applied on the Secondary before hashing or transfer.
+     * days=1 means local midnight today; 3/7/14/30 mean that many calendar
+     * dates including today. No "all gallery" option by design.
+     */
+    List<Photo> getPhotos(int days) {
+        long cutoffMillis = PhotoDateRange.startMillis(days, Calendar.getInstance());
+        long tomorrowMillis = System.currentTimeMillis() + 86_400_000L;
         List<Photo> photos = new ArrayList<>();
         String[] columns = {
-                MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME,
-                MediaStore.Images.Media.SIZE, MediaStore.Images.Media.MIME_TYPE,
-                MediaStore.Images.Media.DATE_TAKEN, MediaStore.Images.Media.DATE_MODIFIED
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.SIZE,
+                MediaStore.Images.Media.MIME_TYPE,
+                MediaStore.Images.Media.DATE_TAKEN,
+                MediaStore.Images.Media.DATE_MODIFIED,
+                MediaStore.Images.Media.DATE_ADDED
+        };
+        String where = "(( " + MediaStore.Images.Media.DATE_TAKEN + " >= ? AND " +
+                MediaStore.Images.Media.DATE_TAKEN + " <= ? ) OR (( " +
+                MediaStore.Images.Media.DATE_TAKEN + " IS NULL OR " +
+                MediaStore.Images.Media.DATE_TAKEN + " <= 0 ) AND " +
+                MediaStore.Images.Media.DATE_ADDED + " >= ?))";
+        if (Build.VERSION.SDK_INT >= 29) where += " AND " + MediaStore.Images.Media.IS_PENDING + "=0";
+        String[] args = {
+                Long.toString(cutoffMillis),
+                Long.toString(tomorrowMillis),
+                Long.toString(cutoffMillis / 1000L)
         };
         ContentResolver cr = context.getContentResolver();
-        try (Cursor cur = cr.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, columns, null, null,
-                MediaStore.Images.Media.DATE_TAKEN + " ASC")) {
+        try (Cursor cur = cr.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                columns, where, args, MediaStore.Images.Media.DATE_TAKEN + " DESC")) {
             if (cur == null) return photos;
             while (cur.moveToNext()) {
                 long id = cur.getLong(0), size = cur.getLong(2);
                 String mime = cur.getString(3);
-                if (size <= 0 || size > MAX_PHOTO_BYTES || mime == null || !mime.startsWith("image/")) continue;
+                if (size <= 0 || size > MAX_PHOTO_BYTES || mime == null ||
+                        !mime.startsWith("image/")) continue;
+                long taken = cur.isNull(4) ? 0 : cur.getLong(4);
+                long modified = cur.isNull(5) ? 0 : cur.getLong(5);
+                long added = cur.isNull(6) ? 0 : cur.getLong(6) * 1000L;
+                long effective = taken > 0 ? taken : added;
+                if (!PhotoDateRange.within(effective, cutoffMillis, tomorrowMillis)) continue;
                 String filename = cur.getString(1);
                 if (filename == null || filename.trim().isEmpty()) filename = "Foto_" + id + ".jpg";
-                long date = cur.isNull(4) ? 0 : cur.getLong(4);
-                long modified = cur.isNull(5) ? 0 : cur.getLong(5);
-                photos.add(new Photo(id, ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id),
-                        filename, mime, size, date, modified));
+                photos.add(new Photo(id,
+                        ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id),
+                        filename, mime, size, effective, modified));
             }
         }
         return photos;
     }
 
-    private static class Photo {
+    /** Receiver-only: write completed Nearby payload into MediaStore/Gallery. */
+    boolean saveNearbyPhoto(Uri receivedUri, String filename, String mime,
+                            long expectedBytes, long dateTaken, String sha256) throws IOException {
+        if (receivedUri == null || expectedBytes <= 0 || expectedBytes > MAX_PHOTO_BYTES ||
+                mime == null || !mime.startsWith("image/") ||
+                sha256 == null || !sha256.matches("[a-f0-9]{64}")) {
+            throw new IOException("Metadados de fotografia inválidos.");
+        }
+        if (db.alreadyReceived(sha256)) return false;
+        Destination destination = new Destination(filename, mime, dateTaken, sha256);
+        boolean finalized = false;
+        try (InputStream source = context.getContentResolver().openInputStream(receivedUri)) {
+            if (source == null) throw new IOException("Não foi possível abrir a fotografia recebida.");
+            MessageDigest md = digest();
+            copyExactly(source, destination.output, expectedBytes, md);
+            if (!sha256.equals(hex(md.digest())))
+                throw new IOException("SHA-256 não corresponde à fotografia original.");
+            destination.finish(true);
+            finalized = true;
+            db.markReceived(sha256);
+            return true;
+        } finally {
+            if (!finalized) destination.closeIfIncomplete();
+        }
+    }
+
+    static final class Photo {
         long id, size, dateTaken, modified;
         Uri uri;
         String name, mime;
