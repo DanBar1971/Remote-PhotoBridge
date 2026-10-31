@@ -301,6 +301,21 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
         pinEntry.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
         pinEntry.setFilters(new InputFilter[]{new InputFilter.LengthFilter(6)});
         syncCard.addView(pinEntry);
+        syncCard.addView(button("TESTAR COMUNICAÇÃO (SEM ENVIAR FOTOS)", false, () -> {
+            if (principalAddress == null) {
+                showConnectionStatus("TESTE IMPOSSÍVEL: os telemóveis ainda não estão ligados por Wi-Fi Direct.");
+                Toast.makeText(this, "Liga primeiro os dois telemóveis.", Toast.LENGTH_LONG).show();
+                wifi.diagnostic();
+                return;
+            }
+            String pin = pinEntry.getText().toString().trim();
+            if (!pin.matches("[0-9]{6}")) {
+                Toast.makeText(this, "Introduz primeiro o PIN de seis dígitos do Principal.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            showConnectionStatus("A testar a comunicação com o Principal, sem transferir fotografias...");
+            transport.testConnection(principalAddress, pin);
+        }));
         syncCard.addView(button("SINCRONIZAR FOTOGRAFIAS", true, () -> {
             if (principalAddress == null) {
                 showConnectionStatus("Ainda NÃO está ligado. Toca em LIGAR A: [nome do Principal] e aceita o convite.");
@@ -389,7 +404,9 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
             if (log.length() > 3_000) log.delete(0, Math.max(0, log.length() - 2_000));
             log.append("• ").append(msg).append('\n');
             if (logView != null) logView.setText(log.toString());
-            if (msg.startsWith("TRANSFERÊNCIA INTERROMPIDA") || msg.startsWith("Não foi possível abrir a receção")) {
+            if (msg.startsWith("TESTE OK:") || msg.startsWith("TESTE FALHOU:")) {
+                if (connectionView != null) connectionView.setText(msg);
+            } else if (msg.startsWith("TRANSFERÊNCIA INTERROMPIDA") || msg.startsWith("Não foi possível abrir a receção")) {
                 if (connectionView != null) connectionView.setText(msg);
             } else if (msg.startsWith("CONCLUÍDO:") || msg.startsWith("RECEÇÃO CONCLUÍDA:")) {
                 if (connectionView != null) connectionView.setText(msg);
