@@ -39,6 +39,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+      - name: Restore signing key from GitHub Actions Secret
+        env:
+          PHOTO_BRIDGE_TEST_KEY: ${{ secrets.PHOTO_BRIDGE_TEST_KEY }}
+        run: |
+          test -n "$PHOTO_BRIDGE_TEST_KEY"
+          printf '%s' "$PHOTO_BRIDGE_TEST_KEY" | base64 -d > app/signing/alpha-test-signing.p12
       - name: Compile test APK
         shell: bash
         run: |
