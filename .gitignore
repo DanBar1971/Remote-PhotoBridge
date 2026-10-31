@@ -7,3 +7,12 @@ local.properties
 *.apk
 *.aab
 .DS_Store
+
+# NEVER commit the private Android signing identity or the GitHub Secret backup.
+/local-signing.properties
+/app/signing/
+*.jks
+*.keystore
+*.p12
+*Signing-Backup*.zip
+*Secret-NEW*.txt

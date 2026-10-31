@@ -1,5 +1,15 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
+}
+
+// The private signing bundle is restored from a protected GitHub Actions Secret.
+// No private signing keys or credentials are stored in this public repository.
+val alphaSigningFile = rootProject.file("local-signing.properties")
+val alphaSigning = Properties()
+if (alphaSigningFile.isFile) {
+    alphaSigningFile.inputStream().use { alphaSigning.load(it) }
 }
 android {
     namespace = "pt.remotephotobridge"
@@ -8,10 +18,28 @@ android {
         applicationId = "pt.remotephotobridge"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.0.0-alpha7"
+        versionCode = 8
+        versionName = "1.0.0-alpha8"
+    }
+    signingConfigs {
+        create("persistentAlpha") {
+            if (alphaSigningFile.isFile) {
+                storeFile = rootProject.file(alphaSigning.getProperty("storeFile"))
+                storeType = "PKCS12"
+                storePassword = alphaSigning.getProperty("storePassword")
+                keyAlias = alphaSigning.getProperty("keyAlias")
+                keyPassword = alphaSigning.getProperty("keyPassword")
+            }
+        }
     }
     buildTypes {
+        getByName("debug") {
+            // Local development without the private bundle may use the default
+            // Android debug signature; CI refuses to publish such APKs.
+            if (alphaSigningFile.isFile) {
+                signingConfig = signingConfigs.getByName("persistentAlpha")
+            }
+        }
         release {
             isMinifyEnabled = false
         }

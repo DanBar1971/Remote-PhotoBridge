@@ -2,7 +2,7 @@
 
 **Android · Wi-Fi Direct · offline · fotografias num único sentido**
 
-Projeto Android independente, v1.0.0-alpha7 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
+Projeto Android independente, v1.0.0-alpha8 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
 
 | Papel | Pode fazer | Nunca faz |
 |---|---|---|
@@ -51,7 +51,7 @@ Não precisa de Internet, cartão SIM, dados móveis, conta Google, router, Blue
 - Gradle **8.10.2**, Android Gradle Plugin **8.8.2**.
 - Abrir a pasta do projeto no Android Studio, aguardar a sincronização de Gradle, e executar **Build > Build APK(s)**; ou em consola com Gradle instalado: `gradle assembleDebug`.
 - APK de teste gerado em `app/build/outputs/apk/debug/app-debug.apk`.
-- O workflow `.github/workflows/android-apk.yml` publica APK de teste em **GitHub Releases** e também em **Actions > Artifacts** ao alterar o código em `main`. Não sobrescreve uma release existente com outra assinatura de debug.
+- O workflow `.github/workflows/android-apk.yml` publica APK em **GitHub Releases**, mas só quando o segredo de assinatura fixa estiver configurado. Segue [SIGNING_SETUP.md](SIGNING_SETUP.md). Não sobrescreve uma release existente com outra assinatura de debug.
 - A chave debug é apenas para testes. Publicação estável requer definir chave de assinatura de release e protegê-la.
 
 ## Limitações atuais da versão alpha
@@ -99,3 +99,11 @@ Dois telemóveis em pontos de acesso diferentes **não deveriam precisar de esta
 6. No fim, voltar a associar cada telemóvel ao seu ponto de acesso normal.
 
 - **alpha7:** remove ligação iniciada no Principal para impedir pedidos concorrentes; distingue explicitamente Wi-Fi normal e Wi-Fi Direct no diagnóstico.
+
+## Atualizações sobre a instalação existente (alpha8 e futuras)
+
+O workflow usa um **certificado privado de assinatura fixo**, guardado no GitHub Actions Secret `RPB_ANDROID_SIGNING_BUNDLE`. Para compilar e publicar um APK válido, o CI verifica o fingerprint exato do certificado. O segredo é configurado uma única vez e nunca deve entrar no repositório público. Consulta [SIGNING_SETUP.md](SIGNING_SETUP.md).
+
+**alpha7 → alpha8** requer uma última desinstalação devido à assinatura incompatível das versões anteriores. **alpha8 → versões posteriores** poderão atualizar por cima, sem perder dados, desde que mantenham o mesmo certificado, `applicationId` e código de versão superior.
+
+A chave de teste antiga, que chegou a estar num histórico de branch pública, não é usada. A chave alpha8 foi gerada de novo e a sua cópia privada deve ficar num backup protegido.
