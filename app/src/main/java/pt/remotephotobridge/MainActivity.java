@@ -317,6 +317,8 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
             permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES);
         permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
         permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        if (PRINCIPAL.equals(role) && Build.VERSION.SDK_INT <= 28)
+            permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
         boolean all = true;
         for (String p : permissions) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) all = false;
         if (all) action.run(); else askPermissions(permissions.toArray(new String[0]), action);
