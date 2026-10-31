@@ -334,7 +334,7 @@ final class WifiDirectLink {
                     listener.message("Wi-Fi normal: ligado a um ponto de acesso (" +
                             band + "). Isto NÃO significa que Wi-Fi Direct esteja ligado.");
                 } else {
-                    listener.message("Wi-Fi normal: sem associação a um router/AP (bom para teste isolado).");
+                    listener.message("Wi-Fi normal: sem associação a um AP visível à aplicação (ou estado ocultado pelas permissões do Android).");
                 }
             } catch (SecurityException e) {
                 listener.message("Estado do Wi-Fi normal indisponível por permissões.");
