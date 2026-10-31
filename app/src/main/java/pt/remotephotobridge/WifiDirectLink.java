@@ -10,12 +10,14 @@ import android.content.pm.PackageManager;
 import android.net.NetworkInfo;
 import android.net.wifi.WpsInfo;
 import android.net.wifi.p2p.WifiP2pConfig;
+import android.net.wifi.p2p.WifiP2pGroup;
 import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pInfo;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -28,6 +30,7 @@ final class WifiDirectLink {
         void peers(List<WifiP2pDevice> devices);
         void connected(WifiP2pInfo info);
         void disconnected();
+        void waitingForPeer();
     }
 
     private final Context context;
@@ -38,7 +41,23 @@ final class WifiDirectLink {
     private boolean registered;
     private boolean connecting;
     private boolean wasConnected;
+    private boolean groupWaiting;
+    private long monitoringUntil;
+    private boolean monitorScheduled;
     private String tryingPeer = "";
+    private final Runnable connectionPoll = new Runnable() {
+        @Override public void run() {
+            monitorScheduled = false;
+            if (SystemClock.elapsedRealtime() > monitoringUntil) {
+                if (connecting) listener.message("Sem confirmação do Android após 90 segundos. Consulta o estado da ligação; se continuar pendente, reinicia nos dois telemóveis.");
+                // Do not clear connecting just because the platform has not completed the
+                // negotiation. Android may be showing a Wi-Fi Direct confirmation dialog.
+                return;
+            }
+            checkConnection();
+            scheduleConnectionPoll();
+        }
+    };
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
@@ -55,12 +74,20 @@ final class WifiDirectLink {
                     if (!connecting) requestPeers();
                     break;
                 case WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION:
+                    NetworkInfo network = intent.getParcelableExtra(WifiP2pManager.EXTRA_NETWORK_INFO);
+                    listener.message("Evento Wi-Fi Direct: " +
+                            (network == null ? "a verificar grupo" : network.getDetailedState().name()));
                     checkConnection();
                     break;
                 case WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION:
                     int discovery = intent.getIntExtra(WifiP2pManager.EXTRA_DISCOVERY_STATE, -1);
                     if (discovery == WifiP2pManager.WIFI_P2P_DISCOVERY_STARTED)
                         listener.message("Descoberta Wi-Fi Direct ativa.");
+                    break;
+                case WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION:
+                    WifiP2pDevice local = intent.getParcelableExtra(WifiP2pManager.EXTRA_WIFI_P2P_DEVICE);
+                    if (local != null)
+                        listener.message("Estado deste Android no Wi-Fi Direct: " + peerStatus(local.status) + ".");
                     break;
             }
         }
@@ -92,6 +119,9 @@ final class WifiDirectLink {
     }
 
     void stop() {
+        main.removeCallbacks(connectionPoll);
+        monitorScheduled = false;
+        monitoringUntil = 0;
         if (!registered) return;
         try { context.unregisterReceiver(receiver); }
         catch (IllegalArgumentException ignored) { }
@@ -102,7 +132,7 @@ final class WifiDirectLink {
     void discover() {
         if (!hasWifiPermission()) { listener.message("Autoriza a permissão Dispositivos próximos primeiro."); return; }
         if (connecting) { listener.message("Já existe um pedido de ligação em curso. Aguarda ou desliga primeiro."); return; }
-        listener.message("A procurar dispositivos Wi-Fi Direct próximos...");
+        listener.message("A procurar dispositivos Wi-Fi Direct próximos. No Principal, não é necessário encontrar o Secundário se este já encontrou o Principal.");
         manager.discoverPeers(channel, new WifiP2pManager.ActionListener() {
             @Override public void onSuccess() {
                 listener.message("Pesquisa iniciada. Toca no nome do outro telemóvel para ligar.");
@@ -137,6 +167,7 @@ final class WifiDirectLink {
         config.groupOwnerIntent = principal ? 15 : 0;
         config.wps.setup = WpsInfo.PBC;
         // Stop discovery before pairing. Concurrent discovery can cause BUSY on some OEMs.
+        watchForConnection();
         manager.stopPeerDiscovery(channel, new WifiP2pManager.ActionListener() {
             @Override public void onSuccess() { requestConnection(config); }
             @Override public void onFailure(int reason) {
@@ -150,13 +181,9 @@ final class WifiDirectLink {
     private void requestConnection(WifiP2pConfig config) {
         manager.connect(channel, config, new WifiP2pManager.ActionListener() {
             @Override public void onSuccess() {
-                listener.message("Pedido enviado. Aguarda autorização Wi-Fi Direct no outro telemóvel (ainda não está ligado).");
-                main.postDelayed(() -> {
-                    if (!connecting) return;
-                    checkConnection();
-                    listener.message("A ligação a " + tryingPeer + " ainda não foi confirmada. Aceita o convite no outro telemóvel; se falhar usa Desligar/Reiniciar.");
-                    connecting = false;
-                }, 30000);
+                listener.message("Pedido de emparelhamento aceite pelo sistema, mas ainda NÃO ligado. Confirma a janela Wi-Fi Direct no Principal.");
+                watchForConnection();
+                checkConnection();
             }
             @Override public void onFailure(int reason) {
                 connecting = false;
@@ -170,13 +197,25 @@ final class WifiDirectLink {
         if (!hasWifiPermission()) return;
         manager.requestConnectionInfo(channel, info -> {
             if (info != null && info.groupFormed) {
-                boolean newConnection = !wasConnected;
-                wasConnected = true;
-                connecting = false;
-                if (newConnection) listener.message("Ligação Wi-Fi Direct estabelecida. Proprietário do grupo: " + (info.isGroupOwner ? "este telemóvel" : "outro telemóvel") + ".");
-                listener.connected(info);
-            } else if (wasConnected) {
+                if (!info.isGroupOwner) {
+                    confirmedConnection(info);
+                    return;
+                }
+                // createGroup() reports groupFormed=true before a second phone joins.
+                // Only label the Principal "CONNECTED" once a real P2P client joins.
+                manager.requestGroupInfo(channel, group -> {
+                    if (group == null) { listener.message("Grupo Wi-Fi Direct ainda sem detalhes. A aguardar..."); return; }
+                    if (!group.getClientList().isEmpty()) {
+                        confirmedConnection(info);
+                    } else if (!groupWaiting) {
+                        groupWaiting = true;
+                        listener.message("Grupo Wi-Fi Direct criado, mas ainda SEM Secundário ligado.");
+                        listener.waitingForPeer();
+                    }
+                });
+            } else if (wasConnected || groupWaiting) {
                 wasConnected = false;
+                groupWaiting = false;
                 connecting = false;
                 listener.message("A ligação Wi-Fi Direct foi desligada.");
                 listener.disconnected();
@@ -184,8 +223,35 @@ final class WifiDirectLink {
         });
     }
 
+    private void confirmedConnection(WifiP2pInfo info) {
+        boolean newlyConnected = !wasConnected || groupWaiting;
+        wasConnected = true;
+        groupWaiting = false;
+        connecting = false;
+        monitoringUntil = 0;
+        main.removeCallbacks(connectionPoll);
+        monitorScheduled = false;
+        if (newlyConnected) {
+            listener.message("Ligação Wi-Fi Direct CONFIRMADA pelo Android. Proprietário: " +
+                    (info.isGroupOwner ? "Principal (este Android)" : "outro telemóvel") + ".");
+            listener.connected(info);
+        }
+    }
+
+    void watchForConnection() {
+        monitoringUntil = SystemClock.elapsedRealtime() + 90_000L;
+        scheduleConnectionPoll();
+    }
+
+    private void scheduleConnectionPoll() {
+        if (monitorScheduled || monitoringUntil == 0) return;
+        monitorScheduled = true;
+        main.postDelayed(connectionPoll, 2_000L);
+    }
+
     @SuppressLint("MissingPermission")
     void createReceiverGroup() {
+        watchForConnection();
         if (!hasWifiPermission()) { listener.message("Permissão Wi-Fi Direct em falta."); return; }
         if (wasConnected) { listener.message("Já estás num grupo; desliga-o antes de criar outro."); return; }
         listener.message("Modo compatibilidade: a criar grupo com o Principal como proprietário...");
@@ -211,6 +277,10 @@ final class WifiDirectLink {
     @SuppressLint("MissingPermission")
     void disconnect() {
         connecting = false;
+        groupWaiting = false;
+        monitoringUntil = 0;
+        main.removeCallbacks(connectionPoll);
+        monitorScheduled = false;
         listener.message("A terminar ligação Wi-Fi Direct anterior...");
         if (!hasWifiPermission()) return;
         manager.cancelConnect(channel, new WifiP2pManager.ActionListener() {
@@ -224,6 +294,7 @@ final class WifiDirectLink {
         manager.removeGroup(channel, new WifiP2pManager.ActionListener() {
             @Override public void onSuccess() {
                 wasConnected = false;
+                groupWaiting = false;
                 listener.disconnected();
                 listener.message("Ligação terminada. Podes voltar a procurar dispositivos.");
             }
@@ -241,6 +312,16 @@ final class WifiDirectLink {
         return Build.VERSION.SDK_INT >= 33
                 ? context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
                 : context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private String peerStatus(int state) {
+        switch (state) {
+            case WifiP2pDevice.CONNECTED: return "ligado";
+            case WifiP2pDevice.INVITED: return "convite pendente";
+            case WifiP2pDevice.FAILED: return "erro de emparelhamento";
+            case WifiP2pDevice.AVAILABLE: return "disponível";
+            default: return "indisponível";
+        }
     }
 
     private String explain(int code) {

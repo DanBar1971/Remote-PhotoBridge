@@ -8,8 +8,8 @@ android {
         applicationId = "pt.remotephotobridge"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.0.0-alpha4"
+        versionCode = 5
+        versionName = "1.0.0-alpha5"
     }
     buildTypes {
         release {

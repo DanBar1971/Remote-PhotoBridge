@@ -2,7 +2,7 @@
 
 **Android · Wi-Fi Direct · offline · fotografias num único sentido**
 
-Projeto Android independente, v1.0.0-alpha4 (teste de ligação). Um único APK instalado em dois Androids, cada um com um papel definido:
+Projeto Android independente, v1.0.0-alpha5 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
 
 | Papel | Pode fazer | Nunca faz |
 |---|---|---|
@@ -24,7 +24,7 @@ Não precisa de Internet, cartão SIM, dados móveis, conta Google, router, Blue
 1. Instalar o mesmo APK nos dois Androids.
 2. Abrir em cada um e escolher o papel persistente: **PRINCIPAL** ou **SECUNDÁRIO**.
 3. Em ambos os telemóveis, ligar o **Wi-Fi e a Localização do Android**. O Bluetooth não é necessário.
-4. No Principal tocar **ATIVAR RECEÇÃO**. Aparece o PIN temporário. O Principal **ainda não está ligado** só porque o PIN aparece.
+4. No Principal tocar **ATIVAR RECEÇÃO**. Aparece o PIN temporário. O Principal **ainda não está ligado** só porque o PIN aparece. O Principal não precisa de descobrir o Secundário na lista: basta que o Secundário encontre o Principal.
 5. Tocar **PROCURAR** num dos telemóveis e selecionar **LIGAR A: [nome do outro Android]** (não escolher TVs). Basta tocar em ligar **num** dos lados. No outro, aceitar a janela de emparelhamento do Android se aparecer.
 6. Aguardar o estado **LIGADO** em ambos; a lista dos dispositivos já não deve desaparecer durante o toque.
 7. Só no Secundário introduzir o PIN e tocar **SINCRONIZAR FOTOGRAFIAS**.
@@ -79,6 +79,7 @@ Ainda não definida (projeto inicial, sem licença externa selecionada).
 
 ## Histórico de correções
 
+- **alpha5:** verifica o emparelhamento até 90 s, mostra estados Wi-Fi Direct do Android, separa grupo vazio de cliente realmente ligado e permite consultar o estado em ambos os telemóveis.
 - **alpha4:** evita que a lista de equipamentos seja recriada enquanto se toca num botão; feedback visual/tátil; interrompe pesquisa antes de solicitar emparelhamento; acompanha ligação, timeout e erros BUSY; mostra estado no topo; permite reiniciar e copiar diagnóstico.
 - **alpha3:** ambos os telemóveis descobrem outros dispositivos, e o Principal escuta num socket local mesmo quando o Android anonimiza o endereço do proprietário do grupo.
 - **alpha2:** substitui a janela de seleção inicial por ecrã completo.

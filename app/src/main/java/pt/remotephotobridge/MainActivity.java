@@ -217,18 +217,24 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
             accepting = true;
             pairingPin = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
             pinView.setText(pairingPin);
+            wifi.watchForConnection();
             wifi.discover();
-            showConnectionStatus("RECEÇÃO ATIVA. Escolhe o Secundário da lista e confirma o convite de ligação.");
-            message("Receção ativada. Procura o Secundário; toca em LIGAR A: [nome do Android] em apenas um dos dois telemóveis.");
+            showConnectionStatus("RECEÇÃO ATIVA — ainda não ligado. O Secundário deve encontrar este Principal e enviar o convite Wi-Fi Direct.");
+            message("A aguardar pedido do Secundário. O Principal NÃO precisa de encontrar o outro na sua lista.");
         })));
         card.addView(button("PROCURAR TELEMÓVEL SECUNDÁRIO", false, () -> ensureWifiPermission(() -> {
             if (!accepting) { message("Ativa primeiro a receção."); return; }
             wifi.discover();
         })));
-        card.addView(sub("Pesquisa nos dois Androids, mas toca em LIGAR A apenas num deles. Aceita qualquer convite de emparelhamento no outro. Não escolhas a TV."));
+        card.addView(sub("RECOMENDADO: no Secundário procura o nome deste Principal (Redmi Note 13 Pro), toca em LIGAR e aceita no Principal o convite do Android. É NORMAL o Principal não apresentar o Secundário nesta lista. Não escolhas a TV."));
         discoveredList = new LinearLayout(this);
         discoveredList.setOrientation(LinearLayout.VERTICAL);
         card.addView(discoveredList);
+        card.addView(button("VERIFICAR ESTADO DO EMPARELHAMENTO", false, () -> ensureWifiPermission(() -> {
+            wifi.checkConnection();
+            wifi.watchForConnection();
+            message("A verificar se o Android aceitou o convite Wi-Fi Direct...");
+        })));
         card.addView(button("MODO COMPATIBILIDADE · CRIAR GRUPO", false, () -> ensureWifiPermission(() -> {
             if (!accepting) { message("Ativa primeiro a receção."); return; }
             wifi.createReceiverGroup();
@@ -260,7 +266,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
     private void renderSecondary(LinearLayout root) {
         LinearLayout peersCard = card(root);
         peersCard.addView(text("1. Encontrar o Principal", 18, TEXT, true));
-        peersCard.addView(sub("No Principal carrega em ATIVAR RECEÇÃO. Pesquisa e toca apenas no outro Android. Depois confirma no outro telemóvel o convite Wi-Fi Direct. O Bluetooth não é necessário."));
+        peersCard.addView(sub("No Principal toca em ATIVAR RECEÇÃO; neste Secundário procura o Redmi Note 13 Pro, toca em LIGAR A e confirma no Principal qualquer pedido de Wi-Fi Direct. Não precisas que o Principal encontre este Secundário."));
         peersCard.addView(button("PROCURAR DISPOSITIVOS", true, () -> ensureWifiPermission(() -> {
             wifi.discover();
             message("Se não aparecer, ativa a Localização e confirma o Wi-Fi em ambos.");
@@ -268,6 +274,11 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
         discoveredList = new LinearLayout(this);
         discoveredList.setOrientation(LinearLayout.VERTICAL);
         peersCard.addView(discoveredList);
+        peersCard.addView(button("VERIFICAR ESTADO DO EMPARELHAMENTO", false, () -> {
+            wifi.checkConnection();
+            wifi.watchForConnection();
+            showConnectionStatus("A verificar se o Android estabeleceu a ligação Wi-Fi Direct...");
+        }));
         peersCard.addView(button("DESLIGAR / REINICIAR LIGAÇÃO", false, () -> {
             principalAddress = null;
             wifi.disconnect();
@@ -276,7 +287,7 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
 
         LinearLayout syncCard = card(root);
         syncCard.addView(text("2. Enviar fotografias", 18, TEXT, true));
-        syncCard.addView(sub("Introduz o PIN visível no Principal. Só são enviadas as fotos às quais deste acesso neste Android."));
+        syncCard.addView(sub("Só podes enviar depois de ambos mostrarem LIGADO. O PIN do Principal NÃO confirma por si só a ligação. Apenas são enviadas as fotografias autorizadas neste Android."));
         pinEntry = new EditText(this);
         pinEntry.setSingleLine(true);
         pinEntry.setHint("PIN de 6 dígitos do Principal");
@@ -377,6 +388,10 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
                 if (connectionView != null) connectionView.setText(msg);
             } else if (msg.startsWith("CONCLUÍDO:") || msg.startsWith("RECEÇÃO CONCLUÍDA:")) {
                 if (connectionView != null) connectionView.setText(msg);
+            } else if (msg.startsWith("Evento Wi-Fi Direct:") ||
+                    msg.startsWith("Pedido de emparelhamento aceite") ||
+                    msg.startsWith("A ligação a ") || msg.startsWith("Falha ao ligar")) {
+                if (connectionView != null) connectionView.setText(msg);
             } else if (msg.startsWith("Pronto para receber fotos")) {
                 if (connectionView != null) connectionView.setText("RECEÇÃO PRONTA. PIN no ecrã. Aguarda o envio.");
             }
@@ -437,6 +452,14 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
             } else if (SECONDARY.equals(role) && info.groupFormed && info.isGroupOwner) {
                 showConnectionStatus("ERRO: o Secundário tornou-se proprietário do grupo. Reinicia e liga a partir do Principal.");
                 message("O Secundário tornou-se proprietário. Usa DESLIGAR em ambos e inicia ligação no Principal.");
+            }
+        });
+    }
+
+    @Override public void waitingForPeer() {
+        runOnUiThread(() -> {
+            if (MAIN.equals(role) && accepting) {
+                showConnectionStatus("GRUPO WI-FI DIRECT CRIADO, MAS SEM SECUNDÁRIO. Aguarda o convite/ligação do outro telemóvel.");
             }
         });
     }
