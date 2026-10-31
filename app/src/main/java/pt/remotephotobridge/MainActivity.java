@@ -193,6 +193,17 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
         logView = sub("Sem atividades nesta sessão.");
         logView.setTextIsSelectable(true);
         statusCard.addView(logView);
+        statusCard.addView(button("COPIAR DIAGNÓSTICO DA LIGAÇÃO", false, () -> {
+            android.content.ClipboardManager clipboard =
+                    (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "Remote PhotoBridge - Diagnóstico", "Papel: " + role
+                                + "\nEstado: " + connectionView.getText()
+                                + "\n" + log.toString()));
+                Toast.makeText(this, "Diagnóstico copiado. Podes colar aqui no chat.", Toast.LENGTH_LONG).show();
+            }
+        }));
 
         if (MAIN.equals(role)) renderPrincipal(content); else renderSecondary(content);
         content.addView(sub("Sem nuvem · Sem conta Google · Fotos em qualidade original"));
@@ -362,6 +373,13 @@ public final class MainActivity extends Activity implements WifiDirectLink.Liste
             if (log.length() > 3_000) log.delete(0, Math.max(0, log.length() - 2_000));
             log.append("• ").append(msg).append('\n');
             if (logView != null) logView.setText(log.toString());
+            if (msg.startsWith("TRANSFERÊNCIA INTERROMPIDA") || msg.startsWith("Não foi possível abrir a receção")) {
+                if (connectionView != null) connectionView.setText(msg);
+            } else if (msg.startsWith("CONCLUÍDO:") || msg.startsWith("RECEÇÃO CONCLUÍDA:")) {
+                if (connectionView != null) connectionView.setText(msg);
+            } else if (msg.startsWith("Pronto para receber fotos")) {
+                if (connectionView != null) connectionView.setText("RECEÇÃO PRONTA. PIN no ecrã. Aguarda o envio.");
+            }
         });
     }
 
