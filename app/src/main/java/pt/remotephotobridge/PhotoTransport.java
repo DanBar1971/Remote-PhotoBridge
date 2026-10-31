@@ -253,15 +253,7 @@ final class PhotoTransport {
      * dates including today. No "all gallery" option by design.
      */
     List<Photo> getPhotos(int days) {
-        if (!(days == 1 || days == 3 || days == 7 || days == 14 || days == 30))
-            throw new IllegalArgumentException("Período de fotografias inválido.");
-        Calendar start = Calendar.getInstance();
-        start.set(Calendar.HOUR_OF_DAY, 0);
-        start.set(Calendar.MINUTE, 0);
-        start.set(Calendar.SECOND, 0);
-        start.set(Calendar.MILLISECOND, 0);
-        start.add(Calendar.DAY_OF_YEAR, -(days - 1));
-        long cutoffMillis = start.getTimeInMillis();
+        long cutoffMillis = PhotoDateRange.startMillis(days, Calendar.getInstance());
         long tomorrowMillis = System.currentTimeMillis() + 86_400_000L;
         List<Photo> photos = new ArrayList<>();
         String[] columns = {
@@ -297,7 +289,7 @@ final class PhotoTransport {
                 long modified = cur.isNull(5) ? 0 : cur.getLong(5);
                 long added = cur.isNull(6) ? 0 : cur.getLong(6) * 1000L;
                 long effective = taken > 0 ? taken : added;
-                if (effective < cutoffMillis || effective > tomorrowMillis) continue;
+                if (!PhotoDateRange.within(effective, cutoffMillis, tomorrowMillis)) continue;
                 String filename = cur.getString(1);
                 if (filename == null || filename.trim().isEmpty()) filename = "Foto_" + id + ".jpg";
                 photos.add(new Photo(id,
