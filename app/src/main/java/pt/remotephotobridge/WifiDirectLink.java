@@ -116,6 +116,7 @@ final class WifiDirectLink {
         else context.registerReceiver(receiver, filter);
         registered = true;
         checkConnection();
+        diagnostic();
     }
 
     void stop() {
@@ -181,7 +182,7 @@ final class WifiDirectLink {
     private void requestConnection(WifiP2pConfig config) {
         manager.connect(channel, config, new WifiP2pManager.ActionListener() {
             @Override public void onSuccess() {
-                listener.message("Pedido de emparelhamento aceite pelo sistema, mas ainda NÃO ligado. Confirma a janela Wi-Fi Direct no Principal.");
+                listener.message("Android iniciou o pedido Wi-Fi Direct para " + tryingPeer + ". Ainda NÃO está ligado. Confirma o pedido no outro equipamento.");
                 watchForConnection();
                 checkConnection();
             }
@@ -265,11 +266,12 @@ final class WifiDirectLink {
     private void doCreateGroup() {
         manager.createGroup(channel, new WifiP2pManager.ActionListener() {
             @Override public void onSuccess() {
-                listener.message("Grupo do Principal criado. No Secundário pesquisa e seleciona este telemóvel.");
+                listener.message("O Principal criou o grupo Wi-Fi Direct. No Secundário procura o nome do Principal e envia um pedido de ligação.");
                 checkConnection();
+                diagnostic();
             }
             @Override public void onFailure(int code) {
-                listener.message("Não foi possível criar grupo: " + explain(code) + ". Desliga e tenta novamente.");
+                listener.message("ERRO na criação do grupo do Principal: " + explain(code) + ". Toca em DESLIGAR/REINICIAR para limpar ligações anteriores.");
             }
         });
     }
@@ -307,6 +309,54 @@ final class WifiDirectLink {
     }
 
     void removeGroup() { disconnect(); }
+
+    /**
+     * Diagnostic values come directly from Android's Wi-Fi Direct framework.
+     * Seeing a peer in requestPeers does not mean a link has been negotiated.
+     */
+    @SuppressLint("MissingPermission")
+    void diagnostic() {
+        if (!hasWifiPermission()) {
+            listener.message("Diagnóstico indisponível: falta autorização de Dispositivos próximos / Localização.");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            manager.requestDeviceInfo(channel, device -> {
+                if (device != null) listener.message("Este dispositivo Wi-Fi Direct: " +
+                        device.deviceName + " | " + peerStatus(device.status));
+                else listener.message("O Android não forneceu informações deste dispositivo.");
+            });
+        }
+        manager.requestConnectionInfo(channel, info -> {
+            if (info == null) {
+                listener.message("Ligação Wi-Fi Direct: sem informação do Android.");
+            } else if (!info.groupFormed) {
+                listener.message("Ligação Wi-Fi Direct: sem grupo formado.");
+            } else {
+                listener.message("Ligação Wi-Fi Direct: grupo formado; proprietário=" +
+                        (info.isGroupOwner ? "este telemóvel" : "outro telemóvel") + ".");
+            }
+        });
+        manager.requestGroupInfo(channel, group -> {
+            if (group == null) {
+                listener.message("Grupo: nenhum grupo P2P disponível.");
+            } else {
+                String owner = group.getOwner() == null ? "indisponível" : group.getOwner().deviceName;
+                listener.message("Grupo: " + group.getNetworkName() + " | proprietário: " +
+                        owner + " | clientes ligados: " + group.getClientList().size() + ".");
+                for (WifiP2pDevice device : group.getClientList()) {
+                    listener.message("Cliente: " + device.deviceName + " | " + peerStatus(device.status));
+                }
+            }
+        });
+        manager.requestPeers(channel, list -> {
+            if (list == null) return;
+            listener.message("Peers detetados pelo Android: " + list.getDeviceList().size() + ".");
+            for (WifiP2pDevice peer : list.getDeviceList()) {
+                listener.message("Peer: " + peer.deviceName + " | estado: " + peerStatus(peer.status));
+            }
+        });
+    }
 
     private boolean hasWifiPermission() {
         return Build.VERSION.SDK_INT >= 33

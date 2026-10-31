@@ -2,7 +2,7 @@
 
 **Android · Wi-Fi Direct · offline · fotografias num único sentido**
 
-Projeto Android independente, v1.0.0-alpha5 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
+Projeto Android independente, v1.0.0-alpha6 (teste de convites Wi-Fi Direct). Um único APK instalado em dois Androids, cada um com um papel definido:
 
 | Papel | Pode fazer | Nunca faz |
 |---|---|---|
@@ -24,10 +24,10 @@ Não precisa de Internet, cartão SIM, dados móveis, conta Google, router, Blue
 1. Instalar o mesmo APK nos dois Androids.
 2. Abrir em cada um e escolher o papel persistente: **PRINCIPAL** ou **SECUNDÁRIO**.
 3. Em ambos os telemóveis, ligar o **Wi-Fi e a Localização do Android**. O Bluetooth não é necessário.
-4. No Principal tocar **ATIVAR RECEÇÃO**. Aparece o PIN temporário. O Principal **ainda não está ligado** só porque o PIN aparece. O Principal não precisa de descobrir o Secundário na lista: basta que o Secundário encontre o Principal.
-5. Tocar **PROCURAR** num dos telemóveis e selecionar **LIGAR A: [nome do outro Android]** (não escolher TVs). Basta tocar em ligar **num** dos lados. No outro, aceitar a janela de emparelhamento do Android se aparecer.
+4. No Principal tocar **ATIVAR RECEÇÃO**. O Android começa a criar um grupo Wi-Fi Direct e este passa a aguardar o Secundário. O PIN temporário não significa que exista uma ligação.
+5. No **Secundário**, tocar **PROCURAR DISPOSITIVOS**, selecionar **LIGAR A: [nome do Principal]** (não escolher TVs) e aceitar o convite Wi-Fi Direct no Principal, se aparecer. O Principal já tem o grupo criado e não precisa de procurar o Secundário.
 6. Aguardar o estado **LIGADO** em ambos; a lista dos dispositivos já não deve desaparecer durante o toque.
-7. Só no Secundário introduzir o PIN e tocar **SINCRONIZAR FOTOGRAFIAS**.
+7. No Secundário, introduzir o PIN e tocar primeiro em **TESTAR COMUNICAÇÃO (SEM ENVIAR FOTOS)**. Se indicar TESTE OK, tocar em **SINCRONIZAR FOTOGRAFIAS**.
 8. Se a negociação falhar, tocar **DESLIGAR / REINICIAR LIGAÇÃO** nos dois e repetir. No Principal existe ainda **MODO COMPATIBILIDADE · CRIAR GRUPO**, para testar em telemóveis difíceis.
 9. O botão **COPIAR DIAGNÓSTICO DA LIGAÇÃO**, no topo de cada app, permite partilhar mensagens e erros de emparelhamento.
 6. O Principal guarda os ficheiros exatamente como recebidos em `Pictures/Remote PhotoBridge`, indexados no MediaStore (galeria normal do Android).
@@ -79,6 +79,7 @@ Ainda não definida (projeto inicial, sem licença externa selecionada).
 
 ## Histórico de correções
 
+- **alpha6:** o Principal cria um grupo Wi-Fi Direct como proprietário por defeito, com diagnóstico detalhado de proprietário, clientes e estados; teste de comunicação com PIN sem enviar fotografias e botões sem corte.
 - **alpha5:** verifica o emparelhamento até 90 s, mostra estados Wi-Fi Direct do Android, separa grupo vazio de cliente realmente ligado e permite consultar o estado em ambos os telemóveis.
 - **alpha4:** evita que a lista de equipamentos seja recriada enquanto se toca num botão; feedback visual/tátil; interrompe pesquisa antes de solicitar emparelhamento; acompanha ligação, timeout e erros BUSY; mostra estado no topo; permite reiniciar e copiar diagnóstico.
 - **alpha3:** ambos os telemóveis descobrem outros dispositivos, e o Principal escuta num socket local mesmo quando o Android anonimiza o endereço do proprietário do grupo.

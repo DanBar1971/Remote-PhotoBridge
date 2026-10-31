@@ -146,6 +146,38 @@ final class PhotoTransport {
         }, "PhotoBridge-Sender").start();
     }
 
+    /**
+     * Check the real Wi-Fi Direct TCP path and the PIN without touching the
+     * gallery or transmitting any photographs.
+     */
+    void testConnection(InetAddress principal, String pin) {
+        if (sending) {
+            msg("Não é possível testar durante uma transferência em curso.");
+            return;
+        }
+        new Thread(() -> {
+            msg("TESTE: a tentar comunicar com o Principal via Wi-Fi Direct...");
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(principal, PORT), 10_000);
+                socket.setSoTimeout(12_000);
+                DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+                DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
+                out.writeUTF("RPB1");
+                out.writeUTF(pin);
+                out.flush();
+                if (!"READY".equals(in.readUTF())) {
+                    throw new IOException("Ligação estabelecida, mas PIN não autorizado.");
+                }
+                out.writeInt(0); // Zero photographs: pure communication test.
+                out.flush();
+                msg("TESTE OK: canal Wi-Fi Direct, TCP e PIN confirmados. Já podes sincronizar fotografias.");
+            } catch (Exception e) {
+                msg("TESTE FALHOU: " + e.getMessage() +
+                        ". Se os dois ecrãs indicam LIGADO, copia o diagnóstico de ambos.");
+            }
+        }, "PhotoBridge-ConnectionTest").start();
+    }
+
     void shutdown() {
         stopReceiving();
         executor.shutdownNow();
