@@ -236,10 +236,9 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         periods.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         periodView = new Spinner(this);
         periodView.setAdapter(periods);
-        int storedDays = prefs.getInt("days", 1);
-        int savedIndex = 0;
-        for (int i = 0; i < DAYS.length; i++) if (DAYS[i] == storedDays) savedIndex = i;
-        periodView.setSelection(savedIndex);
+        // Each time this screen opens start safely from TODAY, even if
+        // the user chose a broader period during an earlier sync.
+        periodView.setSelection(0);
         send.addView(periodView);
         send.addView(button("VER FOTOS DESTE PERÍODO", false, () ->
                 withGalleryPermission(false)));
@@ -252,9 +251,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         if (periodView == null) return 1;
         int pos = periodView.getSelectedItemPosition();
         if (pos < 0 || pos >= DAYS.length) return 1;
-        int days = DAYS[pos];
-        prefs.edit().putInt("days", days).apply();
-        return days;
+        return DAYS[pos];
     }
 
     private void withGalleryPermission(boolean send) {
