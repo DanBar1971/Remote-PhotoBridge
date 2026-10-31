@@ -1,0 +1,363 @@
+package pt.remotephotobridge;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.wifi.p2p.WifiP2pDevice;
+import android.net.wifi.p2p.WifiP2pInfo;
+import android.os.Build;
+import android.os.Bundle;
+import android.text.InputFilter;
+import android.text.InputType;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import java.net.InetAddress;
+import java.security.SecureRandom;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * One package, two immutable data directions:
+ *   PRINCIPAL runs a receiver-only server.
+ *   SECONDARY only scans the local gallery and sends to the principal.
+ */
+public final class MainActivity extends Activity implements WifiDirectLink.Listener {
+    private static final int BG = Color.rgb(14, 23, 38);
+    private static final int CARD = Color.rgb(26, 39, 58);
+    private static final int ACCENT = Color.rgb(52, 211, 191);
+    private static final int TEXT = Color.rgb(235, 243, 249);
+    private static final int MUTED = Color.rgb(164, 179, 197);
+    private static final String MAIN = "principal", SECONDARY = "secundario";
+    private final SecureRandom random = new SecureRandom();
+    private final StringBuilder log = new StringBuilder();
+    private SharedPreferences prefs;
+    private WifiDirectLink wifi;
+    private PhotoTransport transport;
+    private TransferDb database;
+    private String role;
+    private String pairingPin;
+    private InetAddress principalAddress;
+    private boolean accepting;
+    private TextView logView, pinView, connectionView;
+    private LinearLayout discoveredList;
+    private EditText pinEntry;
+    private Runnable pendingPermissionAction;
+    private String pendingPermissionType;
+
+    @Override protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        prefs = getSharedPreferences("role", MODE_PRIVATE);
+        database = new TransferDb(this);
+        transport = new PhotoTransport(this, database, this::message);
+        role = prefs.getString("role", null);
+        if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT)) {
+            new AlertDialog.Builder(this).setTitle("Wi-Fi Direct indisponível")
+                    .setMessage("Este telemóvel não declara suporte Wi-Fi Direct.")
+                    .setPositiveButton("OK", (d,w) -> finish()).setCancelable(false).show();
+            return;
+        }
+        try { wifi = new WifiDirectLink(this, this); }
+        catch (Exception e) { new AlertDialog.Builder(this).setMessage(e.getMessage()).setPositiveButton("OK", (d,w)->finish()).show(); return; }
+        if (role == null) showRoleChooser();
+        else render();
+    }
+
+    @Override protected void onStart() { super.onStart(); if (wifi != null) wifi.start(); }
+    @Override protected void onStop() { if (wifi != null) wifi.stop(); super.onStop(); }
+    @Override protected void onDestroy() {
+        if (transport != null) transport.shutdown();
+        if (database != null) database.close();
+        super.onDestroy();
+    }
+
+    private void showRoleChooser() {
+        new AlertDialog.Builder(this).setTitle("Qual é a função deste telemóvel?")
+                .setMessage("Escolhe uma função para este dispositivo. O Principal nunca envia fotografias.")
+                .setCancelable(false)
+                .setItems(new String[]{"PRINCIPAL  ·  Só receber", "SECUNDÁRIO  ·  Só enviar"}, (d, which) -> {
+                    role = which == 0 ? MAIN : SECONDARY;
+                    prefs.edit().putString("role", role).apply();
+                    render();
+                }).show();
+    }
+
+    private void askChangeRole() {
+        new AlertDialog.Builder(this).setTitle("Alterar a função?")
+                .setMessage("A função é exclusiva. Principal recebe fotos; Secundário envia fotos. Qualquer transferência em curso deve estar concluída.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Alterar", (d,w) -> {
+                    if (transport.isSending()) { message("Aguarda o fim da transferência antes de mudar a função."); return; }
+                    transport.stopReceiving();
+                    wifi.removeGroup();
+                    accepting = false;
+                    principalAddress = null;
+                    pairingPin = null;
+                    role = null;
+                    prefs.edit().remove("role").apply();
+                    showRoleChooser();
+                }).show();
+    }
+
+    private void render() {
+        log.setLength(0);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(BG);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(32), dp(20), dp(32));
+        scroll.addView(content);
+        setContentView(scroll);
+
+        TextView title = text("REMOTE", 30, TEXT, true);
+        content.addView(title);
+        TextView brand = text("PHOTO BRIDGE", 30, ACCENT, true);
+        content.addView(brand);
+        TextView tagline = text("Fotografias sem Internet. Por Wi-Fi Direct.", 13, MUTED, false);
+        tagline.setPadding(0, dp(8), 0, dp(24));
+        content.addView(tagline);
+
+        LinearLayout roleCard = card(content);
+        TextView roleTitle = text(MAIN.equals(role) ? "▣   TELEMÓVEL PRINCIPAL" : "▣   TELEMÓVEL SECUNDÁRIO", 16, ACCENT, true);
+        roleCard.addView(roleTitle);
+        roleCard.addView(sub(MAIN.equals(role)
+                ? "Este telemóvel só recebe fotografias e guarda-as na galeria."
+                : "Este telemóvel só envia fotografias da galeria para o Principal."));
+        Button change = button("Alterar função deste telemóvel", false, this::askChangeRole);
+        roleCard.addView(change);
+
+        if (MAIN.equals(role)) renderPrincipal(content); else renderSecondary(content);
+
+        LinearLayout statusCard = card(content);
+        statusCard.addView(text("ESTADO DA LIGAÇÃO", 14, ACCENT, true));
+        connectionView = sub("Aguarda preparação Wi-Fi Direct.");
+        statusCard.addView(connectionView);
+        logView = sub("Sem atividades nesta sessão.");
+        logView.setTextIsSelectable(true);
+        logView.setPadding(0, dp(12), 0, dp(4));
+        statusCard.addView(logView);
+        content.addView(sub("Sem nuvem · Sem conta Google · Fotos em qualidade original"));
+    }
+
+    private void renderPrincipal(LinearLayout root) {
+        LinearLayout card = card(root);
+        card.addView(text("1. Preparar para receber", 18, TEXT, true));
+        card.addView(sub("Ativa o Wi-Fi. Se necessário, ativa a Localização do Android para a descoberta de dispositivos."));
+        card.addView(button("ATIVAR RECEÇÃO", true, () -> ensureReceiverPermissions(() -> {
+            accepting = true;
+            pairingPin = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
+            pinView.setText(pairingPin);
+            wifi.createReceiverGroup();
+            message("A criar grupo Wi-Fi Direct no Principal...");
+        })));
+        card.addView(button("Parar de receber", false, () -> {
+            accepting = false;
+            transport.stopReceiving();
+            wifi.removeGroup();
+            pinView.setText("------");
+            message("Receção parada.");
+        }));
+        card.addView(sub("PIN de emparelhamento (introduzir no secundário):"));
+        pinView = text("------", 34, ACCENT, true);
+        pinView.setGravity(Gravity.CENTER);
+        pinView.setPadding(0, dp(16), 0, dp(16));
+        card.addView(pinView);
+        card.addView(sub("As fotos recebidas ficam na Galeria, em Pictures / Remote PhotoBridge. As originais continuam no secundário."));
+    }
+
+    private void renderSecondary(LinearLayout root) {
+        LinearLayout peersCard = card(root);
+        peersCard.addView(text("1. Encontrar o Principal", 18, TEXT, true));
+        peersCard.addView(sub("No outro telemóvel carrega primeiro em ATIVAR RECEÇÃO."));
+        peersCard.addView(button("PROCURAR DISPOSITIVOS", true, () -> ensureWifiPermission(() -> {
+            wifi.discover();
+            message("Se não aparecer, ativa a Localização e confirma o Wi-Fi em ambos.");
+        })));
+        discoveredList = new LinearLayout(this);
+        discoveredList.setOrientation(LinearLayout.VERTICAL);
+        peersCard.addView(discoveredList);
+
+        LinearLayout syncCard = card(root);
+        syncCard.addView(text("2. Enviar fotografias", 18, TEXT, true));
+        syncCard.addView(sub("Introduz o PIN visível no Principal. Só são enviadas as fotos às quais deste acesso neste Android."));
+        pinEntry = new EditText(this);
+        pinEntry.setSingleLine(true);
+        pinEntry.setHint("PIN de 6 dígitos do Principal");
+        pinEntry.setHintTextColor(MUTED);
+        pinEntry.setTextColor(TEXT);
+        pinEntry.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        pinEntry.setFilters(new InputFilter[]{new InputFilter.LengthFilter(6)});
+        syncCard.addView(pinEntry);
+        syncCard.addView(button("SINCRONIZAR FOTOGRAFIAS", true, () -> ensureGalleryPermission(() -> {
+            if (principalAddress == null) { message("Liga primeiro ao telemóvel Principal."); return; }
+            String pin = pinEntry.getText().toString().trim();
+            if (!pin.matches("[0-9]{6}")) { message("Introduz o PIN de 6 dígitos."); return; }
+            if (!hasFullGalleryPermission()) message("Acesso parcial: apenas fotografias autorizadas podem ser sincronizadas.");
+            transport.send(principalAddress, pin);
+        })));
+        syncCard.addView(sub("Fotografias já recebidas são ignoradas por SHA-256, sem transmissão repetida dos ficheiros."));
+    }
+
+    private void ensureWifiPermission(Runnable action) {
+        String permission = Build.VERSION.SDK_INT >= 33 ? Manifest.permission.NEARBY_WIFI_DEVICES : Manifest.permission.ACCESS_FINE_LOCATION;
+        ensurePermissions("wifi", new String[]{permission}, action);
+    }
+
+    private void ensureReceiverPermissions(Runnable action) {
+        if (Build.VERSION.SDK_INT < 29 && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            ensurePermissions("receiver", new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, () -> ensureWifiPermission(action));
+        } else ensureWifiPermission(action);
+    }
+
+    private void ensureGalleryPermission(Runnable action) {
+        if (hasAnyGalleryPermission()) { action.run(); return; }
+        if (Build.VERSION.SDK_INT >= 34) {
+            ensurePermissions("gallery", new String[]{Manifest.permission.READ_MEDIA_IMAGES,
+                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED}, action);
+        } else if (Build.VERSION.SDK_INT >= 33) {
+            ensurePermissions("gallery", new String[]{Manifest.permission.READ_MEDIA_IMAGES}, action);
+        } else {
+            ensurePermissions("gallery", new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, action);
+        }
+    }
+
+    private boolean hasFullGalleryPermission() {
+        return Build.VERSION.SDK_INT >= 33
+                ? checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+                : checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean hasAnyGalleryPermission() {
+        return hasFullGalleryPermission() || Build.VERSION.SDK_INT >= 34 &&
+                checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void ensurePermissions(String type, String[] permissions, Runnable action) {
+        boolean allowed = true;
+        for (String p : permissions) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) allowed = false;
+        if (allowed) { action.run(); return; }
+        pendingPermissionAction = action;
+        pendingPermissionType = type;
+        requestPermissions(permissions, 41);
+    }
+
+    @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(code, permissions, results);
+        if (code != 41) return;
+        boolean allowed = "gallery".equals(pendingPermissionType) ? hasAnyGalleryPermission()
+                : "receiver".equals(pendingPermissionType)
+                    ? checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                    : hasWifiPermission();
+        Runnable action = pendingPermissionAction;
+        pendingPermissionAction = null;
+        pendingPermissionType = null;
+        if (allowed && action != null) action.run();
+        else message("Permissão necessária não concedida. Abre as definições para permitir o acesso.");
+    }
+
+    private boolean hasWifiPermission() {
+        String p = Build.VERSION.SDK_INT >= 33 ? Manifest.permission.NEARBY_WIFI_DEVICES : Manifest.permission.ACCESS_FINE_LOCATION;
+        return checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Override public void message(String msg) {
+        runOnUiThread(() -> {
+            if (log.length() > 3_000) log.delete(0, Math.max(0, log.length() - 2_000));
+            log.append("• ").append(msg).append('\n');
+            if (logView != null) logView.setText(log.toString());
+        });
+    }
+
+    @Override public void peers(List<WifiP2pDevice> devices) {
+        runOnUiThread(() -> {
+            if (!SECONDARY.equals(role) || discoveredList == null) return;
+            discoveredList.removeAllViews();
+            if (devices.isEmpty()) {
+                discoveredList.addView(sub("Ainda não foram encontrados dispositivos. Repete a pesquisa."));
+                return;
+            }
+            for (WifiP2pDevice device : devices) {
+                String name = device.deviceName == null || device.deviceName.isEmpty()
+                        ? "Dispositivo Android" : device.deviceName;
+                discoveredList.addView(button("Ligar a " + name, false,
+                        () -> ensureWifiPermission(() -> wifi.connectTo(device))));
+            }
+        });
+    }
+
+    @Override public void connected(WifiP2pInfo info) {
+        runOnUiThread(() -> {
+            if (MAIN.equals(role) && accepting && info.isGroupOwner) {
+                if (connectionView != null) connectionView.setText("Principal: grupo Wi-Fi Direct ativo. Só receção.");
+                if (info.groupOwnerAddress != null && pairingPin != null)
+                    transport.receive(info.groupOwnerAddress, pairingPin);
+            } else if (SECONDARY.equals(role) && info.groupFormed && !info.isGroupOwner) {
+                principalAddress = info.groupOwnerAddress;
+                if (connectionView != null) connectionView.setText("Ligado por Wi-Fi Direct ao Principal.");
+                message("Ligação Wi-Fi Direct estabelecida. Introduz o PIN e sincroniza.");
+            } else if (SECONDARY.equals(role) && info.groupFormed && info.isGroupOwner) {
+                message("Este telemóvel tornou-se dono do grupo. Desliga e tenta ligar ao grupo criado pelo Principal.");
+            }
+        });
+    }
+
+    private LinearLayout card(LinearLayout root) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setPadding(dp(18), dp(18), dp(18), dp(18));
+        GradientDrawable b = new GradientDrawable();
+        b.setColor(CARD);
+        b.setCornerRadius(dp(18));
+        b.setStroke(dp(1), Color.rgb(43, 64, 82));
+        c.setBackground(b);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.bottomMargin = dp(16);
+        root.addView(c, p);
+        return c;
+    }
+
+    private Button button(String label, boolean prominent, Runnable click) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setTextSize(14);
+        b.setTextColor(prominent ? BG : TEXT);
+        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(prominent ? ACCENT : Color.rgb(43, 62, 83));
+        bg.setCornerRadius(dp(12));
+        b.setBackground(bg);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
+        lp.topMargin = dp(12);
+        lp.bottomMargin = dp(4);
+        b.setLayoutParams(lp);
+        b.setOnClickListener(v -> click.run());
+        return b;
+    }
+
+    private TextView sub(String value) { TextView t = text(value, 13, MUTED, false); t.setPadding(0, dp(10), 0, dp(4)); return t; }
+    private TextView text(String value, float size, int color, boolean bold) {
+        TextView t = new TextView(this);
+        t.setText(value);
+        t.setTextColor(color);
+        t.setTextSize(size);
+        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return t;
+    }
+    private int dp(float dp) { return (int) (getResources().getDisplayMetrics().density * dp + 0.5f); }
+}
