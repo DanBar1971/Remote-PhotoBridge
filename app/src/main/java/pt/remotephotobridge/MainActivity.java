@@ -86,6 +86,12 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private Uri lastReceivedGalleryUri;
     private boolean receiving;
     private String currentPage = "home";
+    private UpdateChecker.Result latestUpdate;
+    private String updateMessage = "Ainda não foi verificada a existência de atualizações.";
+    private TextView updateStatusView;
+    private Button updateDownloadButton;
+    private boolean updateCheckedThisSession;
+    private boolean updateChecking;
     private final StringBuilder log = new StringBuilder();
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -649,6 +655,29 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         appearance.addView(button("AUTOMÁTICO · SEGUIR ANDROID", ThemeMode.SYSTEM.equals(selectedAppearance),
                 () -> setAppearance(ThemeMode.SYSTEM)));
 
+        LinearLayout updates = card(root);
+        updates.addView(text("ATUALIZAÇÕES", 17, ACCENT, true));
+        updates.addView(note("Versão instalada: " + BuildConfig.VERSION_NAME));
+        updateStatusView = note(updateMessage);
+        updates.addView(updateStatusView);
+        updates.addView(button("PROCURAR ATUALIZAÇÕES", false, this::checkForUpdates));
+        updateDownloadButton = button("DESCARREGAR ATUALIZAÇÃO", true, () -> {
+            if (latestUpdate != null && latestUpdate.available) {
+                // Opens the official GitHub APK in the user's browser. Android
+                // installation always requires the user's own confirmation.
+                openWebPage(latestUpdate.apkUrl.isEmpty()
+                        ? latestUpdate.releaseUrl : latestUpdate.apkUrl);
+            }
+        });
+        updateDownloadButton.setVisibility(latestUpdate != null && latestUpdate.available
+                ? View.VISIBLE : View.GONE);
+        updates.addView(updateDownloadButton);
+        updates.addView(note("A verificação requer Internet apenas neste momento. As fotografias continuam a ser partilhadas sem Internet."));
+        if (!updateCheckedThisSession) {
+            updateCheckedThisSession = true;
+            checkForUpdates();
+        }
+
         LinearLayout functions = card(root);
         functions.addView(text("FUNÇÃO DESTE TELEMÓVEL", 17, ACCENT, true));
         functions.addView(note(role == null ? "Ainda não definida." :
@@ -685,6 +714,43 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         about.addView(button("ACERCA DA REMOTE PHOTOBRIDGE", false, this::showAbout));
         about.addView(button("☕ OFERECER UM CAFÉ", false, this::showDonate));
         about.addView(button("✉ CONTACTAR SUPORTE", false, this::showSupport));
+    }
+
+    private void checkForUpdates() {
+        if (updateChecking || executor == null || executor.isShutdown()) return;
+        updateChecking = true;
+        updateMessage = "A consultar a última versão estável no GitHub...";
+        if (updateStatusView != null) updateStatusView.setText(updateMessage);
+        executor.execute(() -> {
+            try {
+                UpdateChecker.Result result = UpdateChecker.check(this);
+                runOnUiThread(() -> {
+                    updateChecking = false;
+                    latestUpdate = result;
+                    if (result.available) {
+                        updateMessage = "Nova versão disponível: " + result.latest +
+                                " (instalada: " + result.installed + ").";
+                    } else {
+                        updateMessage = "A aplicação está atualizada (versão " +
+                                result.installed + ").";
+                    }
+                    if (updateStatusView != null) updateStatusView.setText(updateMessage);
+                    if (updateDownloadButton != null) updateDownloadButton.setVisibility(
+                            result.available ? View.VISIBLE : View.GONE);
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    updateChecking = false;
+                    latestUpdate = null;
+                    updateMessage = "Não foi possível verificar atualizações: " +
+                            error.getMessage() +
+                            ". Confirma a ligação à Internet e tenta novamente.";
+                    if (updateStatusView != null) updateStatusView.setText(updateMessage);
+                    if (updateDownloadButton != null)
+                        updateDownloadButton.setVisibility(View.GONE);
+                });
+            }
+        });
     }
 
     private void openAndroidAppSettings() {
