@@ -31,10 +31,19 @@ public class PhotoDateRangeTest {
         assertEquals(date(2026, 10, 27, 0).getTimeInMillis(),
                 PhotoDateRange.startMillis(7, now));
     }
-    @Test public void neverAllowAllGallery() {
-        assertFalse(PhotoDateRange.supported(0));
+    @Test public void entireGalleryMustBeExplicitAndHasNoCutoff() {
+        assertTrue(PhotoDateRange.supported(PhotoDateRange.ALL_GALLERY));
+        assertTrue(PhotoDateRange.isEntireGallery(0));
+        assertEquals(Long.MIN_VALUE,
+                PhotoDateRange.startMillis(0, date(2026, 10, 31, 10)));
+        assertFalse(PhotoDateRange.isEntireGallery(1));
+        assertEquals(date(2026, 10, 31, 0).getTimeInMillis(),
+                PhotoDateRange.startMillis(1, date(2026, 10, 31, 15)));
+    }
+    @Test public void invalidRangesAreRejected() {
+        assertFalse(PhotoDateRange.supported(-1));
         assertFalse(PhotoDateRange.supported(Integer.MAX_VALUE));
-        try { PhotoDateRange.startMillis(0, date(2026, 10, 31, 10)); fail("should reject"); }
+        try { PhotoDateRange.startMillis(-1, date(2026, 10, 31, 10)); fail("should reject"); }
         catch (IllegalArgumentException expected) { }
     }
 }
