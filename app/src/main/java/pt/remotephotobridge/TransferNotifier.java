@@ -12,8 +12,10 @@ import android.os.Build;
 
 /** User-visible progress and final status, without needing mobile data. */
 final class TransferNotifier {
-    private static final String CHANNEL_ID = "photobridge_transfers";
+    private static final String CHANNEL_PROGRESS = "photobridge_progress";
+    private static final String CHANNEL_RESULT = "photobridge_results";
     private static final int NOTIFICATION_ID = 4102;
+    private static final int RESULT_ID = 4103;
     private final Context context;
     private final NotificationManager manager;
     private int lastPercent = -1;
@@ -24,10 +26,14 @@ final class TransferNotifier {
         this.context = context.getApplicationContext();
         manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager != null) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID,
-                    "Transferência de fotografias", NotificationManager.IMPORTANCE_DEFAULT);
-            channel.setDescription("Progresso e conclusão de envio ou receção pela Remote PhotoBridge");
-            manager.createNotificationChannel(channel);
+            NotificationChannel progress = new NotificationChannel(CHANNEL_PROGRESS,
+                    "Transferências em curso", NotificationManager.IMPORTANCE_LOW);
+            progress.setDescription("Progresso de envio e receção");
+            NotificationChannel results = new NotificationChannel(CHANNEL_RESULT,
+                    "Transferências concluídas", NotificationManager.IMPORTANCE_DEFAULT);
+            results.setDescription("Avisar quando todas as fotografias forem enviadas ou recebidas");
+            manager.createNotificationChannel(progress);
+            manager.createNotificationChannel(results);
         }
     }
 
@@ -37,15 +43,15 @@ final class TransferNotifier {
                         == PackageManager.PERMISSION_GRANTED);
     }
 
-    private Notification.Builder builder() {
+    private Notification.Builder builder(String channelId, boolean quiet) {
         Intent launch = new Intent(context, MainActivity.class);
         launch.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent tap = PendingIntent.getActivity(context, 4102, launch,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(context, CHANNEL_ID)
+        return new Notification.Builder(context, channelId)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentIntent(tap)
-                .setOnlyAlertOnce(true)
+                .setOnlyAlertOnce(quiet)
                 .setVisibility(Notification.VISIBILITY_PRIVATE);
     }
 
@@ -57,7 +63,7 @@ final class TransferNotifier {
         active = true;
         String title = sending ? "A enviar fotografias" : "A receber fotografias";
         String detail = completed + "/" + total + " fotografias · " + percent + "%";
-        Notification note = builder()
+        Notification note = builder(CHANNEL_PROGRESS, true)
                 .setContentTitle(title).setContentText(detail)
                 .setOngoing(true).setCategory(Notification.CATEGORY_PROGRESS)
                 .setProgress(100, percent, false).build();
@@ -75,14 +81,15 @@ final class TransferNotifier {
                     " novas; " + duplicates + " já existentes)."
                 : "Na Galeria: " + newPhotos + " novas; " +
                     duplicates + " já existentes.";
-        Notification note = builder()
+        manager.cancel(NOTIFICATION_ID);
+        Notification note = builder(CHANNEL_RESULT, false)
                 .setContentTitle(title)
                 .setContentText(detail)
                 .setCategory(Notification.CATEGORY_STATUS)
                 .setOngoing(false)
                 .setAutoCancel(true)
                 .setProgress(0, 0, false).build();
-        manager.notify(NOTIFICATION_ID, note);
+        manager.notify(RESULT_ID, note);
     }
 
     void failed(String reason) {
@@ -92,13 +99,14 @@ final class TransferNotifier {
         lastDone = -1;
         String message = reason == null ? "Confirma a ligação nos dois telemóveis." : reason;
         if (message.length() > 110) message = message.substring(0, 110);
-        Notification note = builder()
+        manager.cancel(NOTIFICATION_ID);
+        Notification note = builder(CHANNEL_RESULT, false)
                 .setContentTitle("Transferência interrompida")
                 .setContentText(message)
                 .setCategory(Notification.CATEGORY_ERROR)
                 .setOngoing(false)
                 .setAutoCancel(true)
                 .setProgress(0, 0, false).build();
-        manager.notify(NOTIFICATION_ID, note);
+        manager.notify(RESULT_ID, note);
     }
 }
