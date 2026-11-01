@@ -68,10 +68,11 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private static final int PERMISSION_CODE = 2048;
     private static final int NOTIFICATION_PERMISSION_CODE = 2090;
     private boolean returningFromCamera;
-    private static final int[] DAYS = {1, 3, 7, 14, 30};
+    private static final int[] DAYS = {1, 3, 7, 14, 30, PhotoDateRange.ALL_GALLERY};
     private static final String[] PERIODS = {
             "Hoje", "Últimos 3 dias (inclui hoje)", "Últimos 7 dias (inclui hoje)",
-            "Últimos 14 dias (inclui hoje)", "Últimos 30 dias (inclui hoje)"
+            "Últimos 14 dias (inclui hoje)", "Últimos 30 dias (inclui hoje)",
+            "TODA A GALERIA (sem limite de data)"
     };
 
     private SharedPreferences prefs;
@@ -385,7 +386,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         LinearLayout send = card(root);
         send.addView(text("2. ESCOLHER FOTOGRAFIAS E VÍDEOS", 18, TEXT, true));
         send.addView(note("Para tirar várias fotos com a Câmara normal, regressa ao menu principal. Depois escolhe Hoje para as sincronizar."));
-        send.addView(note("Escolhe o tipo de ficheiros e o período. Hoje é a opção inicial."));
+        send.addView(note("Escolhe fotos, vídeos ou ambos e depois o período. Hoje continua a opção inicial. TODA A GALERIA inclui ficheiros antigos, mesmo com anos."));
         ArrayAdapter<String> choices = new ArrayAdapter<>(this,
                 android.R.layout.simple_spinner_item,
                 new String[]{"TUDO (fotografias + vídeos)", "SÓ FOTOGRAFIAS", "SÓ VÍDEOS"});
@@ -417,6 +418,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         // the user chose a broader period during an earlier sync.
         periodView.setSelection(0);
         send.addView(periodView);
+        send.addView(note("Para transferir uma galeria antiga, escolhe TODA A GALERIA. Antes de enviar verás a quantidade e o tamanho, sem apagar os originais."));
         send.addView(button("VER FOTOS E VÍDEOS DESTE PERÍODO", false, () ->
                 withGalleryPermission(false)));
         send.addView(button("SINCRONIZAR FOTOS E VÍDEOS", true, () ->
@@ -470,13 +472,28 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
             if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) all = false;
         }
         if (all) preview(send);
-        else askPermissions(needed.toArray(new String[0]), () -> preview(send));
+        else askPermissions(needed.toArray(new String[0]), () -> {
+            // Android 14+ can grant only a selected set of pictures. That is
+            // not equivalent to whole-gallery access. Never claim otherwise.
+            boolean complete = true;
+            for (String p : needed) {
+                if (Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED.equals(p)) continue;
+                if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) complete = false;
+            }
+            if (!complete && selectedDays() == PhotoDateRange.ALL_GALLERY) {
+                state("TODA A GALERIA requer acesso completo a Fotos e Vídeos. Nas Definições do Android autoriza todas as fotografias/vídeos para Remote PhotoBridge.");
+                openAndroidAppSettings();
+            } else if (complete) preview(send);
+            else state("Acesso parcial: para pesquisar a galeria inteira, concede acesso completo em Opções → Acessos.");
+        });
     }
 
     private void preview(boolean send) {
         int days = selectedDays();
         String type = selectedMediaType();
-        state("A procurar fotografias e vídeos do período...");
+        state(days == PhotoDateRange.ALL_GALLERY ?
+                "A analisar TODA A GALERIA, incluindo ficheiros antigos..." :
+                "A procurar fotografias e vídeos do período...");
         executor.execute(() -> {
             try {
                 List<PhotoTransport.Photo> selected = photos.getMedia(days, type);
@@ -494,14 +511,28 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
                             "%.1f", size / 1048576.0) + " MB) em " +
                             PERIODS[periodIndex(days)] + ".";
                     state(summary);
-                    if (!send || selected.isEmpty()) return;
+                    if (selected.isEmpty()) {
+                        state("Não foram encontrados ficheiros. Verifica os acessos de Fotos/Vídeos e se o Android já indexou a Galeria.");
+                        return;
+                    }
+                    if (!send) return;
                     if (nearby == null || !nearby.isConnected()) {
                         state("Liga ao Principal antes de enviar.");
                         return;
                     }
+                    if (selected.size() > 200000) {
+                        state("A Galeria contém mais de 200 000 ficheiros. O protocolo atual não aceita esse volume num único envio; escolhe períodos mais curtos.");
+                        return;
+                    }
+                    boolean entireGallery = days == PhotoDateRange.ALL_GALLERY;
+                    String caution = entireGallery
+                            ? "\n\nATENÇÃO: TODA A GALERIA inclui fotografias e vídeos de todos os anos, " +
+                              "pode demorar muito e exigir bastante espaço no Principal. " +
+                              "Confirma que ambos os telemóveis têm bateria e espaço livres."
+                            : "\n\nVídeos grandes podem demorar.";
                     new AlertDialog.Builder(this)
-                        .setTitle("Confirmar envio?")
-                        .setMessage(summary + "\n\nVídeos grandes podem demorar. Não serão apagados originais.")
+                        .setTitle(entireGallery ? "Enviar TODA A GALERIA?" : "Confirmar envio?")
+                        .setMessage(summary + caution + "\nOs originais nunca serão apagados.")
                         .setNegativeButton("Cancelar", null)
                         .setPositiveButton("Enviar " + selected.size(), (d,w) ->
                             withNotificationPermission(() -> nearby.sendPhotos(selected)))
