@@ -31,7 +31,7 @@ final class TransferNotifier {
             progress.setDescription("Progresso de envio e receção");
             NotificationChannel results = new NotificationChannel(CHANNEL_RESULT,
                     "Transferências concluídas", NotificationManager.IMPORTANCE_DEFAULT);
-            results.setDescription("Avisar quando todas as fotografias forem enviadas ou recebidas");
+            results.setDescription("Avisar quando todas as ficheiros forem enviadas ou recebidas");
             manager.createNotificationChannel(progress);
             manager.createNotificationChannel(results);
         }
@@ -61,8 +61,8 @@ final class TransferNotifier {
         lastPercent = percent;
         lastDone = completed;
         active = true;
-        String title = sending ? "A enviar fotografias" : "A receber fotografias";
-        String detail = completed + "/" + total + " fotografias · " + percent + "%";
+        String title = sending ? "A enviar ficheiros" : "A receber ficheiros";
+        String detail = completed + "/" + total + " ficheiros · " + percent + "%";
         Notification note = builder(CHANNEL_PROGRESS, true)
                 .setContentTitle(title).setContentText(detail)
                 .setOngoing(true).setCategory(Notification.CATEGORY_PROGRESS)
@@ -75,11 +75,11 @@ final class TransferNotifier {
         active = false;
         lastPercent = 100;
         lastDone = total;
-        String title = sending ? "Fotografias enviadas!" : "Fotografias recebidas!";
+        String title = sending ? "Ficheiros enviadas!" : "Ficheiros recebidas!";
         String detail = sending
-                ? "Concluído: " + total + " fotografias (" + newPhotos +
-                    " novas; " + duplicates + " já existentes)."
-                : "Na Galeria: " + newPhotos + " novas; " +
+                ? "Concluído: " + total + " ficheiros (" + newPhotos +
+                    " novos; " + duplicates + " já existentes)."
+                : "Na Galeria: " + newPhotos + " novos; " +
                     duplicates + " já existentes.";
         manager.cancel(NOTIFICATION_ID);
         Notification note = builder(CHANNEL_RESULT, false)
