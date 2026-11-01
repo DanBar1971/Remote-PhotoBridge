@@ -2,7 +2,7 @@ package pt.remotephotobridge;
 
 import java.util.Calendar;
 
-/** Date windows are local-calendar dates, including today; never all photos. */
+/** Local-calendar date ranges, or an explicitly chosen entire gallery (zero). */
 final class PhotoDateRange {
     /** Explicit user-selected historical gallery, not a default value. */
     static final int ALL_GALLERY = 0;
