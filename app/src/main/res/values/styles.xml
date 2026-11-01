@@ -1,10 +1,21 @@
 <resources>
+    <!-- Dark theme maintained as the default for existing installations. -->
     <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#34D3BF</item>
-        <item name="android:navigationBarColor">#101827</item>
-        <item name="android:statusBarColor">#101827</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#0E1726</item>
+        <item name="android:navigationBarColor">#0E1726</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+    <style name="AppTheme.Light" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#087E76</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F4F7FA</item>
+        <item name="android:navigationBarColor">#F4F7FA</item>
+        <item name="android:windowLightNavigationBar">true</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>
