@@ -1,64 +1,49 @@
-# Remote PhotoBridge — Android
+# Remote PhotoBridge — Android 1.0.0
 
-Transferência local de fotografias originais do telemóvel **Secundário (só envia)** para o **Principal (só recebe)**, sem Internet, sem SIM, sem conta cloud e sem necessidade de ambos estarem ligados ao mesmo router.
+Aplicação Android para **fotografar, consultar a Galeria e transferir fotos locais** entre dois telemóveis, sem Internet, SIM, conta Google para sincronização ou ligação ao mesmo router.
 
-## Fluxo da alpha12
+## Menu principal
 
-Nesta versão, a ligação foi migrada do controlo Wi-Fi Direct manual (que falhava nos testes Redmi) para **Google Nearby Connections**: o mesmo sistema que funciona na sincronização da SaúdePrática. Utiliza Bluetooth e Wi-Fi automaticamente, sem dados móveis. Necessita de Google Play Services instalado e atualizado. **A biblioteca não garante forçar exclusivamente o transporte Wi-Fi Direct.**
+- **CÂMARA:** abre a aplicação Câmara normal do telemóvel em modo fotografia. Permite tirar **várias fotografias seguidas**, guardadas pela própria Câmara na Galeria do aparelho (normalmente DCIM/Camera), sem ficheiros temporários geridos pela PhotoBridge. Ao voltar, no Secundário, a app oferece abrir Partilhar para sincronizar as fotos de **Hoje**, sem as enviar automaticamente.
+- **GALERIA:** abre a aplicação Galeria normal do Android (a página da biblioteca, **não** apenas a última fotografia). Possui modos alternativos caso a versão do Android não anuncie a categoria de Galeria.
+- **PARTILHAR:** mostra receção/envio Nearby com as opções de período por data. O Principal **só recebe** e o Secundário **só envia**. O Principal recebe as imagens originais em `Pictures/Remote PhotoBridge` pela API `MediaStore`; estas aparecem na Galeria. O botão da Galeria no ecrã de receção também abre agora a Galeria normal.
+- **OPÇÕES:** escolher Master/Slave (Principal/Secundário), consultar acessos, gerir permissões diretamente nas definições Android, Acerca, apoiar o autor e contactar suporte.
 
-1. Instalar a mesma APK em ambos (desde a alpha8, a assinatura é fixa e aceita atualização por cima).
-2. Principal: **RECEBER FOTOGRAFIAS**, fica visível por Nearby.
-3. Secundário: **PROCURAR PRINCIPAL**, tocar no telemóvel que anuncia Remote PhotoBridge.
-4. Comparar os códigos de segurança nos **dois telemóveis** e confirmar apenas se forem iguais.
-5. Secundário: escolher o período:
-   - **Hoje** (valor inicial): desde a meia-noite local.
-   - **Últimos 3 dias**, **7 dias**, **14 dias** ou **30 dias**, incluindo hoje.
-6. **VER FOTOS DESTE PERÍODO** para conhecer a quantidade, depois **SINCRONIZAR FOTOGRAFIAS** e confirmar tamanho e número.
-7. O Principal guarda cada imagem validada por SHA-256 na Galeria, em `Pictures/Remote PhotoBridge`. Os originais continuam no Secundário; fotos com hash já recebido não são guardadas de novo.
+## Partilhar fotografias (Nearby Connections)
 
-### Política de datas
+1. Na primeira utilização, selecionar **Principal** no equipamento recetor e **Secundário** no equipamento emissor, em **Opções**.
+2. Em **Partilhar**, no Principal tocar **RECEBER FOTOGRAFIAS**.
+3. No Secundário abrir **Partilhar → PROCURAR PRINCIPAL**, selecionar o outro Android e confirmar **o mesmo código de segurança nos dois aparelhos**.
+4. No Secundário escolher as fotos de **Hoje (padrão), últimos 3, 7, 14 ou 30 dias**; usar **VER FOTOS DESTE PERÍODO** para conferir número/tamanho; depois **SINCRONIZAR FOTOGRAFIAS** e confirmar.
+5. O Principal grava originais na Galeria, sem apagar os originais do Secundário. Imagens repetidas por SHA-256 são ignoradas.
 
-- **Nunca existe opção de transferir toda a galeria.**
-- O filtro é aplicado no Secundário **antes de calcular os hashes ou enviar ficheiros**.
-- Usa `MediaStore.Images.Media.DATE_TAKEN` em milissegundos; apenas quando ausente, usa `DATE_ADDED` em segundos. Datas são convertidas para os dias do fuso horário local.
-- Se a data de uma imagem estiver errada nos metadados Android, pode cair fora do intervalo; não envia imagens mais antigas por acidente.
-- Inclui fotografias a que a aplicação tem acesso. No Android com acesso limitado à galeria, só envia imagens explicitamente autorizadas.
+O transporte utiliza Google Nearby Connections (como a SaúdePrática), que gere automaticamente Bluetooth e Wi-Fi sem ligação ao router. Requer os serviços Google Play instalados e as permissões necessárias, mas não dados móveis.
 
-### Galeria do Principal
+**Não existe opção de enviar toda a galeria.** As datas são filtradas no Secundário por `MediaStore.DATE_TAKEN` (ou `DATE_ADDED` quando ausente), antes da transmissão.
 
-As imagens recebidas são inseridas por `MediaStore` em `Pictures/Remote PhotoBridge`, com o `MIME_TYPE`, `DATE_TAKEN` e `IS_PENDING` atualizados. O sistema Android indexa-as para Galeria/Google Fotos local. São copiadas em qualidade original, byte a byte; só ficam visíveis após SHA-256 corresponder. Transferências incompletas não ficam publicadas. Em versões antigas do Android usa a digitalização multimédia.
+## Câmara e Galeria
 
-### Segurança e sentido único
+- A Câmara é **nativa** e independente da app. A PhotoBridge não escolhe a localização nem cria antecipadamente o ficheiro da fotografia: isso fica ao cuidado da aplicação Câmara do fabricante. Desta forma, é possível tirar várias fotos e encontrá-las na sua Galeria habitual.
+- A Galeria também é a **aplicação do sistema**. O atalho abre a biblioteca inteira; a PhotoBridge não a substitui por um visualizador da última foto.
+- O próprio Android gere as permissões de utilização da Câmara externa. A leitura de fotografias para enviar requer autorização à PhotoBridge no Secundário; a página **Opções → Acessos e permissões** ajuda a pedi-la e alterar os direitos.
+- Uma ligação Nearby ativa pode continuar enquanto se regressa ao menu, mas o utilizador deve manter os aparelhos desbloqueados durante transferências grandes.
 
-- Só o Secundário chama `sendPhotos` e lê a sua galeria.
-- Só o Principal aceita e grava payloads FILE.
-- A autenticação Nearby mostra dígitos iguais nos dois dispositivos, que têm de ser confirmados explicitamente.
-- A descoberta é limitada ao identificador específico do serviço Remote PhotoBridge: televisões e outras apps não surgem.
-- A app não precisa de acesso à Internet para a troca, mas depende da presença prévia dos serviços Google Play.
-- Sem eliminação automática de fotografias em nenhum dos equipamentos.
+## Acerca e Apoio
 
-## Testes de desenvolvimento
+Autor: **Daniel Barradas**. Suporte: **daniel.barradas@gmail.com**, com formulário de dúvida, sugestão e erro semelhante ao da SaúdePrática, abrindo a aplicação de email sem enviar por conta própria.
 
-`PhotoDateRangeTest` confirma Hoje, últimos três dias, passagem de mês e mudança de hora e que um pedido “toda a galeria” não é permitido.
+Apoio opcional:
+- Buy Me a Coffee: https://buymeacoffee.com/danielbarr7
+- PayPal: https://www.paypal.com/paypalme/djjindungo
 
-O workflow `.github/workflows/validate-android-pr.yml` executa testes e compilação antes do merge. Depois de integrar na branch principal, `.github/workflows/android-apk.yml` compila com a **chave privada fixa**, verifica a assinatura SHA-256 e publica `Remote-PhotoBridge-v1.0.0-alpha12-debug.apk` numa pré-release.
+Não existem pagamentos dentro da aplicação.
 
-**Importante:** testes automáticos/compilação não substituem um teste real de emparelhamento, transferência, deduplicação e visualização na galeria nos dois telemóveis. Esta é uma versão alpha.
+## APK de produção e atualizações
 
-## Repositório
+**Versão 1.0.0 (versionCode 100)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
 
-https://github.com/DanBar1971/Remote-PhotoBridge
+O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.0.apk` na release estável `v1.0.0`. Não publica se o certificado não corresponder ou estiver ausente.
 
-Chave de assinatura privada guardada em GitHub Actions Secret `RPB_ANDROID_SIGNING_BUNDLE`. Não publicar ficheiros de assinatura no código-fonte.
+Os testes automáticos de datas e compilação não substituem a validação física da abertura das apps Câmara/Galeria em diferentes fabricantes.
 
-## Novidades alpha12 — Câmara e Galeria
-
-- **Principal (apenas recetor):** assim que a aplicação confirma que uma nova imagem foi gravada corretamente, aparece o botão **MOSTRAR GALERIA**. Abre a fotografia recebida numa aplicação de Galeria/visualizador do Android, com fallback para a Galeria normal.
-- **Secundário (apenas emissor):** novo botão **ABRIR CÂMARA**. É aberta a aplicação de câmara instalada, com captura de resolução original para um item MediaStore em `DCIM/Remote PhotoBridge`.
-- Após a captura, o original fica guardado primeiro na **Galeria do Secundário**; a aplicação pergunta **“Sincronizar apenas esta fotografia?”**. Nada é enviado sem confirmação.
-- Se já existir uma ligação Nearby, só essa fotografia é enviada; se estiver desligado, é possível procurar o Principal e confirmar novamente quando a ligação for estabelecida.
-- Se o utilizador escolher **Mais tarde**, a imagem mantém-se na galeria e poderá entrar numa futura sincronização por período.
-- O Principal continua proibido de enviar fotografias; o sentido da comunicação e a deduplicação por SHA-256 mantêm-se.
-- O certificado protegido e o identificador Android continuam iguais: instalar `alpha12` sobre `alpha11`, sem desinstalar.
-
-A abertura da câmara e o visualizador da Galeria dependem das apps instaladas em cada Android. É necessário confirmar com testes físicos nos dois equipamentos.
+Repositório: https://github.com/DanBar1971/Remote-PhotoBridge
