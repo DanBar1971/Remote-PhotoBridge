@@ -1,4 +1,4 @@
-# Remote PhotoBridge — Android 1.0.0
+# Remote PhotoBridge — Android 1.0.1
 
 Aplicação Android para **fotografar, consultar a Galeria e transferir fotos locais** entre dois telemóveis, sem Internet, SIM, conta Google para sincronização ou ligação ao mesmo router.
 
@@ -40,10 +40,18 @@ Não existem pagamentos dentro da aplicação.
 
 ## APK de produção e atualizações
 
-**Versão 1.0.0 (versionCode 100)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
+**Versão 1.0.1 (versionCode 101)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
 
-O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.0.apk` na release estável `v1.0.0`. Não publica se o certificado não corresponder ou estiver ausente.
+O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.1.apk` na release estável `v1.0.1`. Não publica se o certificado não corresponder ou estiver ausente.
 
 Os testes automáticos de datas e compilação não substituem a validação física da abertura das apps Câmara/Galeria em diferentes fabricantes.
 
 Repositório: https://github.com/DanBar1971/Remote-PhotoBridge
+
+## Aspeto: claro, escuro ou automático (1.0.1)
+
+Na aplicação: **Opções → Aspeto**. Escolhe **Claro** (fundos claros e textos escuros), **Escuro** (tema original) ou **Automático → Seguir Android**. A escolha fica guardada nas preferências do respetivo telemóvel, aplica-se ao menu, Partilhar, Opções, suporte, botões, campos, diálogos e barras de estado/navegação. O modo automático acompanha alterações do modo escuro do Android.
+
+A escolha não altera nem reinicia a camada de transferência Nearby. A aplicação evita mudanças de tema durante envios em curso. Para manter o aspeto anterior dos utilizadores existentes, a opção inicial permanece **Escuro** até à escolha manual de outro modo.
+
+Versão de produção, assinatura fixa preservada, **atualização por cima da 1.0.0 sem desinstalar**.
