@@ -77,6 +77,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private PhotoTransport photos;
     private TransferDb db;
     private ExecutorService executor;
+    private ExecutorService updateExecutor;
     private String role;
     private Runnable afterPermission;
     private TextView statusView, detailsView;
@@ -105,6 +106,8 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         db = new TransferDb(this);
         photos = new PhotoTransport(this, db, this::state);
         executor = Executors.newSingleThreadExecutor();
+        // Isolate network checks from offline image lookup and photo operations.
+        updateExecutor = Executors.newSingleThreadExecutor();
         int services = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this);
         if (services != ConnectionResult.SUCCESS) {
             new AlertDialog.Builder(this).setTitle("Google Play Services indisponíveis")
@@ -216,6 +219,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         if (photos != null) photos.shutdown();
         if (db != null) db.close();
         if (executor != null) executor.shutdownNow();
+        if (updateExecutor != null) updateExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -725,11 +729,11 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     }
 
     private void checkForUpdates() {
-        if (updateChecking || executor == null || executor.isShutdown()) return;
+        if (updateChecking || updateExecutor == null || updateExecutor.isShutdown()) return;
         updateChecking = true;
         updateMessage = "A consultar a última versão estável no GitHub...";
         if (updateStatusView != null) updateStatusView.setText(updateMessage);
-        executor.execute(() -> {
+        updateExecutor.execute(() -> {
             try {
                 UpdateChecker.Result result = UpdateChecker.check(this);
                 runOnUiThread(() -> {
