@@ -508,17 +508,13 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     /** Native camera owns its saves: DCIM/Camera, multi-shot, no app temp file. */
     private void openSystemCamera() {
         try {
+            // Official Android intent opens the normal camera application,
+            // not the one-shot capture API that had failed to save photos.
             startActivity(new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA));
             returningFromCamera = true;
-        } catch (ActivityNotFoundException noCamera) {
-            try {
-                startActivity(Intent.makeMainSelectorActivity(
-                        Intent.ACTION_MAIN, Intent.CATEGORY_APP_CAMERA));
-                returningFromCamera = true;
-            } catch (Exception unavailable) {
-                Toast.makeText(this, "Não foi encontrada uma aplicação Câmara neste telemóvel.",
-                        Toast.LENGTH_LONG).show();
-            }
+        } catch (ActivityNotFoundException unavailable) {
+            Toast.makeText(this, "Não foi encontrada uma aplicação Câmara neste telemóvel.",
+                    Toast.LENGTH_LONG).show();
         } catch (SecurityException unavailable) {
             Toast.makeText(this, "A Câmara não pôde ser aberta. Confirma os acessos do Android.",
                     Toast.LENGTH_LONG).show();
