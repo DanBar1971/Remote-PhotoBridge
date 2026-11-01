@@ -68,8 +68,9 @@ final class NearbyPhotoLink {
     private int connectionType() {
         String chosen = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString("network_mode", TransferNetworkMode.STABLE);
-        return TransferNetworkMode.allowDisruptiveUpgrade(chosen) ?
-                ConnectionType.DISRUPTIVE : ConnectionType.NON_DISRUPTIVE;
+        if (TransferNetworkMode.FAST.equals(chosen)) return ConnectionType.DISRUPTIVE;
+        if (TransferNetworkMode.BALANCED.equals(chosen)) return ConnectionType.BALANCED;
+        return ConnectionType.NON_DISRUPTIVE;
     }
 
     private String wirelessState() {
@@ -279,7 +280,8 @@ final class NearbyPhotoLink {
         }
         listener.state("A preparar " + queue.size() + " ficheiros. " +
                 "Modo rede: " + (connectionType() == ConnectionType.DISRUPTIVE ?
-                "Velocidade máxima" : "Estável, preservar Wi-Fi") + ".");
+                "Velocidade máxima" : connectionType() == ConnectionType.BALANCED ?
+                "Equilibrado" : "Estável, preservar Wi-Fi") + ".");
         reportProgress(true, false, "A preparar envio...");
         try {
             sendControl(json("start").put("count", queue.size()).put("bytes", totalBytes));
