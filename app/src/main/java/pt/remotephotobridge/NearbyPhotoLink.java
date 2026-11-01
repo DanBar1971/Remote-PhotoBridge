@@ -80,7 +80,7 @@ final class NearbyPhotoLink {
     private long activePayloadId = -1L;
     private int receivedCount, receivedNew, receivedDuplicates, receiverTotal;
     private long receiverExpectedBytes, receiverAcknowledgedBytes, receiverInFlightBytes;
-    private boolean receiverSessionActive;
+    private volatile boolean receiverSessionActive;
     private int lastProgressPercent = -1;
     private int lastProgressDone = -1;
     private volatile String activeOffer;
@@ -113,7 +113,7 @@ final class NearbyPhotoLink {
                 .addOnFailureListener(e -> listener.state("Falha ao procurar: " + e.getMessage()));
     }
 
-    boolean isBusy() { return busy; }
+    boolean isBusy() { return busy || receiverSessionActive; }
     boolean isConnected() { return connected; }
 
     void connect(String id) {
