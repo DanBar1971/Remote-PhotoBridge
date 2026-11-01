@@ -89,6 +89,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private Spinner mediaTypeView;
     private Button retryButton;
     private Button galleryButton;
+    private TextView selectionSummaryView;
     private Uri lastReceivedGalleryUri;
     private TransferNotifier transferNotifier;
     private LinearLayout progressCard;
@@ -288,6 +289,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         mediaTypeView = null;
         retryButton = null;
         galleryButton = null;
+        selectionSummaryView = null;
         progressCard = null;
         progressBar = null;
         percentView = null;
@@ -419,6 +421,8 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         periodView.setSelection(0);
         send.addView(periodView);
         send.addView(note("Para transferir uma galeria antiga, escolhe TODA A GALERIA. Antes de enviar verás a quantidade e o tamanho, sem apagar os originais."));
+        selectionSummaryView = note("Toca em VER FOTOS E VÍDEOS para conhecer o tamanho de cada grupo antes de enviar.");
+        send.addView(selectionSummaryView);
         send.addView(button("VER FOTOS E VÍDEOS DESTE PERÍODO", false, () ->
                 withGalleryPermission(false)));
         send.addView(button("SINCRONIZAR FOTOS E VÍDEOS", true, () ->
@@ -497,20 +501,31 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         executor.execute(() -> {
             try {
                 List<PhotoTransport.Photo> selected = photos.getMedia(days, type);
-                long bytes = 0L;
+                long photoBytes = 0L, videoBytes = 0L;
                 int images = 0, videos = 0;
                 for (PhotoTransport.Photo item : selected) {
-                    bytes += item.size;
-                    if (item.mime.startsWith("video/")) videos++; else images++;
+                    if (item.mime.startsWith("video/")) {
+                        videos++;
+                        videoBytes += item.size;
+                    } else {
+                        images++;
+                        photoBytes += item.size;
+                    }
                 }
-                final long size = bytes;
+                final long photoSize = photoBytes, videoSize = videoBytes;
                 final int photoCount = images, videoCount = videos;
                 runOnUiThread(() -> {
-                    String summary = photoCount + " fotografias, " + videoCount +
-                            " vídeos (" + String.format(Locale.getDefault(),
-                            "%.1f", size / 1048576.0) + " MB) em " +
-                            PERIODS[periodIndex(days)] + ".";
-                    state(summary);
+                    String summary = "Fotografias: " + photoCount + " · " +
+                            TransferSizes.format(photoSize) +
+                            "\nVídeos: " + videoCount + " · " +
+                            TransferSizes.format(videoSize) +
+                            "\nTOTAL: " + selected.size() + " ficheiros · " +
+                            TransferSizes.format(photoSize + videoSize) +
+                            "\nPeríodo: " + PERIODS[periodIndex(days)] + ".";
+                    if (selectionSummaryView != null)
+                        selectionSummaryView.setText(summary);
+                    state("Pré-visualização concluída: " + selected.size() +
+                            " ficheiros · " + TransferSizes.format(photoSize + videoSize));
                     if (selected.isEmpty()) {
                         state("Não foram encontrados ficheiros. Verifica os acessos de Fotos/Vídeos e se o Android já indexou a Galeria.");
                         return;
