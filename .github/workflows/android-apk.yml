@@ -98,7 +98,7 @@ jobs:
           apk="Remote-PhotoBridge-v1.0.0.apk"
           if gh release view "$tag" >/dev/null 2>&1; then
             if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$apk"; then
-              echo "APK already published for this version. Refusing to overwrite with another debug signature."
+              echo "APK already published for this version. Refusing to overwrite a production release."
               exit 1
             fi
             gh release upload "$tag" "$apk"
@@ -106,7 +106,7 @@ jobs:
             gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Remote PhotoBridge 1.0.0" --notes "Primeira versão estável da Remote PhotoBridge. Menu principal Câmara, Galeria, Partilhar e Opções. Câmara e Galeria abrem as aplicações originais do Android, guardando e mostrando todas as fotos pela própria aplicação de sistema. Partilhar usa Nearby Connections sem Internet, Principal apenas recebe, Secundário apenas envia as fotos de Hoje/3/7/14/30 dias. Opções permite alterar Principal/Secundário, gerir permissões do Android, ver Acerca, apoio ao autor (Buy Me a Coffee/PayPal) e Contactar Suporte pelo mesmo endereço da SaúdePrática. APK Android release, não debug, versionCode 100, assinado pela chave fixa de versões anteriores para instalar por cima da alpha12." --latest
           fi
           gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$apk"
-          echo "Release publicada e APK confirmado em:"
+          echo "Release de produção publicada e APK confirmado em:"
           gh release view "$tag" --json url --jq '.url'
       - name: Record confirmed release for maintainers
         env:
@@ -116,7 +116,7 @@ jobs:
           set -euo pipefail
           url="$(gh release view v1.0.0 --json url --jq '.url')"
           cat > RELEASE_STATUS.md <<EOF
-          # Remote PhotoBridge — APK de testes
+          # Remote PhotoBridge — APK de produção 1.0.0
 
           Release verificada pelo workflow: $url
 
