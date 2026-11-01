@@ -1,9 +1,9 @@
-# Remote PhotoBridge — APK de produção 1.0.3
+# Remote PhotoBridge — APK de produção 1.0.4
 
-Release verificada pelo workflow: https://github.com/DanBar1971/Remote-PhotoBridge/releases/tag/v1.0.3
+Release verificada pelo workflow: https://github.com/DanBar1971/Remote-PhotoBridge/releases/tag/v1.0.4
 
-APK: Remote-PhotoBridge-v1.0.3.apk
+APK: Remote-PhotoBridge-v1.0.4.apk
 
-SHA-256: 61f745fa5294e565c67ec8f4bb24208af146db7bf6ae2a4c169e13ef4d7f97a4
+SHA-256: 630f6b2b1767352c567cefa9d5a2b36c3db71c62476844b524d5517da7429a51
 
-Versão 1.0.3: vídeos e fotografias por data, transferência com SHA-256, reconexão Nearby e repetição de envio interrompido. Assinatura fixa.
+Versão 1.0.4: modos Estável/Rápido, diagnóstico Wi-Fi/velocidade, proteção CPU temporária e seleção Tudo/Fotos/Vídeos, assinatura fixa.
