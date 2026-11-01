@@ -1,4 +1,4 @@
-# Remote PhotoBridge — Android 1.0.5
+# Remote PhotoBridge — Android 1.0.6
 
 Aplicação Android para **fotografar, consultar a Galeria e transferir fotos locais** entre dois telemóveis, sem Internet, SIM, conta Google para sincronização ou ligação ao mesmo router.
 
@@ -40,9 +40,9 @@ Não existem pagamentos dentro da aplicação.
 
 ## APK de produção e atualizações
 
-**Versão 1.0.5 (versionCode 105)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
+**Versão 1.0.6 (versionCode 106)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
 
-O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.5.apk` na release estável `v1.0.5`. Não publica se o certificado não corresponder ou estiver ausente.
+O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.6.apk` na release estável `v1.0.6`. Não publica se o certificado não corresponder ou estiver ausente.
 
 Os testes automáticos de datas e compilação não substituem a validação física da abertura das apps Câmara/Galeria em diferentes fabricantes.
 
@@ -110,3 +110,19 @@ A pesquisa é executada fora do ecrã principal e mostra previamente **quantidad
 **Atenção aos acessos:** no Android 14+, uma permissão apenas para fotografias selecionadas não permite catalogar toda a biblioteca. Para esta opção a app solicita permissão de leitura total para os tipos selecionados; se continuar parcial, direciona para as permissões nas Definições. Fotografias/vídeos ainda não indexados, mantidos apenas na nuvem ou com ficheiros inacessíveis não são transferidos. Ficheiros individuais têm o limite técnico atual de 12 GiB.
 
 Esta atualização 1.0.5 continua a usar Nearby Connections, as opções de rede Estável/Rápida e a assinatura de produção fixa da versão anterior, permitindo atualizar diretamente por cima.
+
+## Novo em 1.0.6 — MB/GB antes e durante a transferência
+
+**Antes de enviar:** a previsão da galeria passa a apresentar separadamente **Fotografias: quantidade e tamanho**, **Vídeos: quantidade e tamanho**, **TOTAL: quantidade e tamanho**, sempre em MB ou GB. O resumo fica visível no ecrã Partilhar e aparece novamente na confirmação de envio. Os valores derivam de MediaStore sem comprimir nem ler integralmente o conteúdo.
+
+**Durante o envio e a receção:** além de 1/19 ficheiros e da percentagem, a aplicação mostra **Lote: 650 MB de 2,00 GB; faltam 1,35 GB** e **Ficheiro 3/19: video.mp4; ficheiro atual 150 MB de 500 MB; faltam 350 MB** (exemplos). Os valores provêm dos bytes reais reportados pelo Nearby e refrescam até a cada 400 ms, mesmo quando a percentagem inteira não se altera. Mantêm-se a velocidade de transferência, a leitura SHA-256, o aviso de conclusão e o reconhecimento de duplicados.
+
+A contagem de bytes globais **inclui ficheiros repetidos confirmados**, mesmo quando já existem no Principal e não precisam de ser transferidos outra vez. Representa o volume do lote já processado e o que falta processar, não necessariamente o tráfego efetivo pela rede. Cada ficheiro transferido mostra separadamente os bytes transmitidos e os que faltam. MB/GB são unidades decimais (1 MB = 1 000 000 bytes).
+
+Mantém a mesma assinatura de produção para atualizar a v1.0.5 diretamente por cima sem desinstalar.
+
+## Ajuste adicional de desempenho 1.0.6
+
+A negociação Nearby tem três modos documentados: **Estável** (NON_DISRUPTIVE), **Equilibrado** (BALANCED) e **Velocidade máxima** (DISRUPTIVE). Estável não altera Wi-Fi/Bluetooth mas pode limitar a largura de banda em alguns Androids. Equilibrado permite alterar a ligação apenas se necessário, procurando canais rápidos para vídeo. Velocidade máxima pode desligar temporariamente o Wi-Fi do router. A app mantém o modo Estável anterior até o utilizador selecionar outro; em ambos os telemóveis deve ser escolhido o mesmo modo e confirmado um novo emparelhamento.
+
+Em lotes com vídeos de pelo menos 200 MB e modo Estável, a confirmação alerta para um possível gargalo. **Durante o cálculo SHA-256**, a app mostra quantos bytes locais já analisou sem contabilizá-los como enviados. A transmissão via Nearby inicia apenas após o cálculo do hash. O desempenho depende do transporte e do hardware e estas alterações não garantem acelerar todos os pares de telemóveis.

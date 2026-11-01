@@ -68,8 +68,9 @@ final class NearbyPhotoLink {
     private int connectionType() {
         String chosen = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString("network_mode", TransferNetworkMode.STABLE);
-        return TransferNetworkMode.allowDisruptiveUpgrade(chosen) ?
-                ConnectionType.DISRUPTIVE : ConnectionType.NON_DISRUPTIVE;
+        if (TransferNetworkMode.FAST.equals(chosen)) return ConnectionType.DISRUPTIVE;
+        if (TransferNetworkMode.BALANCED.equals(chosen)) return ConnectionType.BALANCED;
+        return ConnectionType.NON_DISRUPTIVE;
     }
 
     private String wirelessState() {
@@ -103,12 +104,15 @@ final class NearbyPhotoLink {
     private long activePayloadId = -1L;
     private int receivedCount, receivedNew, receivedDuplicates, receiverTotal;
     private long receiverExpectedBytes, receiverAcknowledgedBytes, receiverInFlightBytes;
+    private long receiverCurrentFileSize;
+    private String receiverCurrentFileName = "";
     private volatile boolean receiverSessionActive;
     private boolean peerSupportsVideo;
     private List<PhotoTransport.Photo> retrySelection = new ArrayList<>();
     private boolean pendingRetry;
     private int lastProgressPercent = -1;
     private int lastProgressDone = -1;
+    private long lastProgressUiAtMillis;
     private volatile String activeOffer;
     private volatile PhotoTransport.Photo activePhoto;
     private ParcelFileDescriptor activeDescriptor;
@@ -267,6 +271,7 @@ final class NearbyPhotoLink {
         currentFileStartedMillis = 0L;
         activePayloadId = -1L;
         lastProgressPercent = lastProgressDone = -1;
+        lastProgressUiAtMillis = 0L;
         queue = new ArrayList<>(selected);
         totalBytes = 0L;
         for (PhotoTransport.Photo p : queue) {
@@ -275,7 +280,8 @@ final class NearbyPhotoLink {
         }
         listener.state("A preparar " + queue.size() + " ficheiros. " +
                 "Modo rede: " + (connectionType() == ConnectionType.DISRUPTIVE ?
-                "Velocidade máxima" : "Estável, preservar Wi-Fi") + ".");
+                "Velocidade máxima" : connectionType() == ConnectionType.BALANCED ?
+                "Equilibrado" : "Estável, preservar Wi-Fi") + ".");
         reportProgress(true, false, "A preparar envio...");
         try {
             sendControl(json("start").put("count", queue.size()).put("bytes", totalBytes));
@@ -309,12 +315,16 @@ final class NearbyPhotoLink {
             return;
         }
         final PhotoTransport.Photo p = queue.get(position);
+        activePhoto = p;
+        reportProgress(true, false, "A calcular SHA-256 (leitura local, sem envio)...");
         worker.execute(() -> {
             try {
                 long hashStarted = SystemClock.elapsedRealtime();
                 listener.state("A calcular SHA-256 de " + p.name +
                         " (" + (p.size / (1024 * 1024)) + " MB); ainda não está a enviar...");
-                final String hash = photos.photoHash(p);
+                final String hash = photos.photoHash(p, (checked, size) ->
+                        listener.state("A analisar SHA-256 (ainda não está a enviar): " +
+                                p.name + "\n" + TransferSizes.current(checked, size)));
                 long hashElapsed = Math.max(1, SystemClock.elapsedRealtime() - hashStarted);
                 listener.state("Hash concluído em " + (hashElapsed / 1000) +
                         " s. A pedir confirmação de duplicado...");
@@ -389,11 +399,11 @@ final class NearbyPhotoLink {
                 if (currentSenderFile) {
                     currentPayloadBytes = Math.min(activePhoto == null ? transferred :
                             activePhoto.size, transferred);
-                    reportProgress(true, false, "A enviar fotografia " +
+                    reportProgress(true, false, "A enviar ficheiro " +
                             (position + 1) + "/" + queue.size());
                 } else if (currentReceiverFile) {
                     receiverInFlightBytes = Math.max(receiverInFlightBytes, transferred);
-                    reportProgress(false, false, "A receber fotografia " +
+                    reportProgress(false, false, "A receber ficheiro " +
                             (receivedCount + 1) + "/" + receiverTotal);
                 }
             }
@@ -423,11 +433,15 @@ final class NearbyPhotoLink {
             receiverTotal = count;
             receiverExpectedBytes = bytes;
             receiverAcknowledgedBytes = receiverInFlightBytes = 0L;
+            receiverCurrentFileSize = 0L;
+            receiverCurrentFileName = "";
             receivedCount = receivedNew = receivedDuplicates = 0;
             receiverSessionActive = true;
             powerGuard.start();
             lastProgressPercent = lastProgressDone = -1;
-            listener.state("A iniciar receção de " + count + " fotografias...");
+            lastProgressUiAtMillis = 0L;
+            listener.state("A iniciar receção de " + count + " ficheiros ("
+                    + TransferSizes.format(bytes) + ")...");
             reportProgress(false, false, "A aguardar fotografias...");
         } else if ("offer".equals(type) && receivingMode) {
             String sha = cmd.getString("hash");
@@ -439,13 +453,18 @@ final class NearbyPhotoLink {
                 listener.state("Recebidos metadados inválidos.");
                 return;
             }
+            receiverCurrentFileSize = bytes;
+            receiverCurrentFileName = cmd.optString("name", "");
+            receiverInFlightBytes = 0L;
             if (db.alreadyReceived(sha)) {
                 sendControl(json("skip").put("id", id));
                 receivedCount++;
                 receivedDuplicates++;
                 receiverAcknowledgedBytes += bytes;
                 receiverInFlightBytes = 0L;
-                reportProgress(false, false, "Fotografia já existente.");
+                receiverCurrentFileSize = 0L;
+                receiverCurrentFileName = "";
+                reportProgress(false, false, "Ficheiro já existente (não enviado novamente).");
             } else {
                 offers.put(id, cmd);
                 sendControl(json("need").put("id", id));
@@ -545,7 +564,9 @@ final class NearbyPhotoLink {
                     if (saved) receivedNew++; else receivedDuplicates++;
                     receiverAcknowledgedBytes += metadata.optLong("size", 0L);
                     receiverInFlightBytes = 0L;
-                    reportProgress(false, false, "Fotografia guardada e verificada.");
+                    receiverCurrentFileSize = 0L;
+                    receiverCurrentFileName = "";
+                    reportProgress(false, false, "Ficheiro guardado e verificado.");
                 }
                 sendControl(json("ack").put("id", offerId).put("ok", error.isEmpty())
                         .put("saved", saved).put("reason", error));
@@ -563,20 +584,44 @@ final class NearbyPhotoLink {
         int percent = TransferProgressMath.percentage(
                 done, all, inflight, confirmed, count, finished);
         powerGuard.pulse();
-        if (percent != lastProgressPercent || confirmed != lastProgressDone || finished) {
+        long now = SystemClock.elapsedRealtime();
+        // Nearby may report many byte updates within the same integer percent.
+        // Refresh the MB totals at least every 400 ms, even when the percentage
+        // has not changed (common during a single very large video).
+        if (percent != lastProgressPercent || confirmed != lastProgressDone ||
+                finished || now - lastProgressUiAtMillis >= 400L) {
             lastProgressPercent = percent;
             lastProgressDone = confirmed;
-            String extra = "";
+            lastProgressUiAtMillis = now;
+            StringBuilder extra = new StringBuilder();
+            extra.append("\n").append(TransferSizes.batch(done, inflight, all));
+            long currentSize = 0L;
+            String currentName = "";
+            int currentIndex = sender ? position + 1 : receivedCount + 1;
+            if (sender && activePhoto != null && position == confirmed && !finished) {
+                currentSize = activePhoto.size;
+                currentName = activePhoto.name;
+            } else if (!sender && receiverCurrentFileSize > 0L && !finished) {
+                currentSize = receiverCurrentFileSize;
+                currentName = receiverCurrentFileName;
+            }
+            if (currentSize > 0L) {
+                if (currentName.length() > 58)
+                    currentName = currentName.substring(0, 55) + "...";
+                extra.append("\n").append(currentIndex).append("/").append(count)
+                        .append(": ").append(currentName);
+                extra.append("\n").append(TransferSizes.current(inflight, currentSize));
+            }
             if (sender && transferStartMillis > 0 && done + inflight > 0) {
-                long elapsed = Math.max(1L, SystemClock.elapsedRealtime() - transferStartMillis);
+                long elapsed = Math.max(1L, now - transferStartMillis);
                 double speed = ((done + inflight) / 1048576.0) / (elapsed / 1000.0);
-                extra = String.format(java.util.Locale.ROOT, " · sessão %.2f MB/s", speed);
+                extra.append(String.format(java.util.Locale.ROOT,
+                        "\nMédia sessão: %.2f MiB/s", speed));
                 if (currentFileStartedMillis > 0 && inflight > 0) {
-                    long fileElapsed = Math.max(1L,
-                            SystemClock.elapsedRealtime() - currentFileStartedMillis);
+                    long fileElapsed = Math.max(1L, now - currentFileStartedMillis);
                     double networkSpeed = (inflight / 1048576.0) / (fileElapsed / 1000.0);
-                    extra += String.format(java.util.Locale.ROOT,
-                            " · ficheiro %.2f MB/s", networkSpeed);
+                    extra.append(String.format(java.util.Locale.ROOT,
+                            " · ficheiro: %.2f MiB/s", networkSpeed));
                 }
             }
             listener.transferProgress(sender, percent, confirmed, count, detail + extra);

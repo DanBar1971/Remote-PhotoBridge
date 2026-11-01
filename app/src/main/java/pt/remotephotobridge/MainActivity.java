@@ -89,6 +89,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private Spinner mediaTypeView;
     private Button retryButton;
     private Button galleryButton;
+    private TextView selectionSummaryView;
     private Uri lastReceivedGalleryUri;
     private TransferNotifier transferNotifier;
     private LinearLayout progressCard;
@@ -288,6 +289,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         mediaTypeView = null;
         retryButton = null;
         galleryButton = null;
+        selectionSummaryView = null;
         progressCard = null;
         progressBar = null;
         percentView = null;
@@ -419,6 +421,8 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         periodView.setSelection(0);
         send.addView(periodView);
         send.addView(note("Para transferir uma galeria antiga, escolhe TODA A GALERIA. Antes de enviar verás a quantidade e o tamanho, sem apagar os originais."));
+        selectionSummaryView = note("Toca em VER FOTOS E VÍDEOS para conhecer o tamanho de cada grupo antes de enviar.");
+        send.addView(selectionSummaryView);
         send.addView(button("VER FOTOS E VÍDEOS DESTE PERÍODO", false, () ->
                 withGalleryPermission(false)));
         send.addView(button("SINCRONIZAR FOTOS E VÍDEOS", true, () ->
@@ -497,20 +501,31 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         executor.execute(() -> {
             try {
                 List<PhotoTransport.Photo> selected = photos.getMedia(days, type);
-                long bytes = 0L;
+                long photoBytes = 0L, videoBytes = 0L;
                 int images = 0, videos = 0;
                 for (PhotoTransport.Photo item : selected) {
-                    bytes += item.size;
-                    if (item.mime.startsWith("video/")) videos++; else images++;
+                    if (item.mime.startsWith("video/")) {
+                        videos++;
+                        videoBytes += item.size;
+                    } else {
+                        images++;
+                        photoBytes += item.size;
+                    }
                 }
-                final long size = bytes;
+                final long photoSize = photoBytes, videoSize = videoBytes;
                 final int photoCount = images, videoCount = videos;
                 runOnUiThread(() -> {
-                    String summary = photoCount + " fotografias, " + videoCount +
-                            " vídeos (" + String.format(Locale.getDefault(),
-                            "%.1f", size / 1048576.0) + " MB) em " +
-                            PERIODS[periodIndex(days)] + ".";
-                    state(summary);
+                    String summary = "Fotografias: " + photoCount + " · " +
+                            TransferSizes.format(photoSize) +
+                            "\nVídeos: " + videoCount + " · " +
+                            TransferSizes.format(videoSize) +
+                            "\nTOTAL: " + selected.size() + " ficheiros · " +
+                            TransferSizes.format(photoSize + videoSize) +
+                            "\nPeríodo: " + PERIODS[periodIndex(days)] + ".";
+                    if (selectionSummaryView != null)
+                        selectionSummaryView.setText(summary);
+                    state("Pré-visualização concluída: " + selected.size() +
+                            " ficheiros · " + TransferSizes.format(photoSize + videoSize));
                     if (selected.isEmpty()) {
                         state("Não foram encontrados ficheiros. Verifica os acessos de Fotos/Vídeos e se o Android já indexou a Galeria.");
                         return;
@@ -530,6 +545,16 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
                               "pode demorar muito e exigir bastante espaço no Principal. " +
                               "Confirma que ambos os telemóveis têm bateria e espaço livres."
                             : "\n\nVídeos grandes podem demorar.";
+                    boolean largeStableBatch = videoCount > 0 && videoSize >= 200_000_000L &&
+                            TransferNetworkMode.potentiallySlowForLargeVideos(
+                                prefs.getString("network_mode", TransferNetworkMode.STABLE));
+                    if (largeStableBatch) {
+                        caution += "\n\nAVISO DE VELOCIDADE: o modo ESTÁVEL pode usar " +
+                                "um canal muito lento para vídeos grandes. " +
+                                "Para testar EQUILIBRADO, altera o modo em OPÇÕES nos " +
+                                "dois telemóveis e liga novamente antes de enviar. " +
+                                "Não vou mudar o Wi-Fi durante este envio.";
+                    }
                     new AlertDialog.Builder(this)
                         .setTitle(entireGallery ? "Enviar TODA A GALERIA?" : "Confirmar envio?")
                         .setMessage(summary + caution + "\nOs originais nunca serão apagados.")
@@ -872,11 +897,15 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         String networkChoice = TransferNetworkMode.normalize(
                 prefs.getString("network_mode", TransferNetworkMode.STABLE));
         network.addView(note("Modo atual: " + TransferNetworkMode.label(networkChoice)));
-        network.addView(note("Estável (recomendado): evita que o Nearby altere o Wi-Fi do router. Pode ficar mais lento se não houver um canal Wi-Fi direto."));
-        network.addView(button("ESTÁVEL · NÃO INTERROMPER WI-FI", 
+        network.addView(note("Estável: preserva o Wi-Fi e o Bluetooth. Pode limitar a transferência de vídeos grandes a um canal mais lento."));
+        network.addView(button("ESTÁVEL · PRESERVAR WI-FI",
                 TransferNetworkMode.STABLE.equals(networkChoice),
                 () -> setNetworkMode(TransferNetworkMode.STABLE)));
-        network.addView(note("Velocidade máxima: permite ao Nearby escolher um canal mais rápido, mas pode desligar temporariamente a ligação ao router."));
+        network.addView(note("Equilibrado: deixa o Nearby escolher um canal Wi-Fi rápido quando possível, alterando os rádios apenas se necessário."));
+        network.addView(button("EQUILIBRADO · RECOMENDADO PARA VÍDEOS",
+                TransferNetworkMode.BALANCED.equals(networkChoice),
+                () -> setNetworkMode(TransferNetworkMode.BALANCED)));
+        network.addView(note("Velocidade máxima: dá mais liberdade para acelerar, mas pode desligar temporariamente a ligação ao router."));
         network.addView(button("VELOCIDADE MÁXIMA · EXPERIMENTAL",
                 TransferNetworkMode.FAST.equals(networkChoice),
                 () -> setNetworkMode(TransferNetworkMode.FAST)));
