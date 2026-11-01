@@ -84,6 +84,7 @@ final class NearbyPhotoLink {
     private final PhotoTransport photos;
     private final TransferDb db;
     private final Listener listener;
+    private final TransferPowerGuard powerGuard;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Map<String,String> endpoints = new HashMap<>();
     private final Map<String,JSONObject> offers = new HashMap<>();
@@ -118,6 +119,7 @@ final class NearbyPhotoLink {
         this.photos = photos;
         this.db = db;
         this.listener = listener;
+        this.powerGuard = new TransferPowerGuard(context);
     }
 
     void receive() {
@@ -258,6 +260,7 @@ final class NearbyPhotoLink {
         retrySelection = new ArrayList<>(selected);
         pendingRetry = true;
         busy = true;
+        powerGuard.start();
         saved = skipped = position = 0;
         acknowledgedBytes = currentPayloadBytes = 0;
         transferStartMillis = SystemClock.elapsedRealtime();
@@ -293,6 +296,7 @@ final class NearbyPhotoLink {
                 pendingRetry = false;
                 retrySelection.clear();
                 listener.transferFinished(true, saved, skipped, total);
+                powerGuard.stop();
                 listener.state("CONCLUÍDO: " + saved + " novas na galeria do Principal; " +
                         skipped + " já existentes (" + total + " selecionadas).");
             } catch (Exception e) {
@@ -420,6 +424,7 @@ final class NearbyPhotoLink {
             receiverAcknowledgedBytes = receiverInFlightBytes = 0L;
             receivedCount = receivedNew = receivedDuplicates = 0;
             receiverSessionActive = true;
+            powerGuard.start();
             lastProgressPercent = lastProgressDone = -1;
             listener.state("A iniciar receção de " + count + " fotografias...");
             reportProgress(false, false, "A aguardar fotografias...");
@@ -488,6 +493,7 @@ final class NearbyPhotoLink {
                 listener.state("Receção incompleta: confirma os resultados no Secundário.");
             }
             receiverSessionActive = false;
+            powerGuard.stop();
             busy = false;
         }
     }
@@ -555,6 +561,7 @@ final class NearbyPhotoLink {
         int confirmed = sender ? saved + skipped : receivedCount;
         int percent = TransferProgressMath.percentage(
                 done, all, inflight, confirmed, count, finished);
+        powerGuard.pulse();
         if (percent != lastProgressPercent || confirmed != lastProgressDone || finished) {
             lastProgressPercent = percent;
             lastProgressDone = confirmed;
@@ -590,6 +597,7 @@ final class NearbyPhotoLink {
         boolean sending = !receivingMode;
         busy = false;
         receiverSessionActive = false;
+        powerGuard.stop();
         releaseSenderFile();
         currentPayloadBytes = receiverInFlightBytes = 0L;
         if (wasTransfer) {
@@ -630,6 +638,7 @@ final class NearbyPhotoLink {
         endpoint = null;
         peerSupportsVideo = false;
         releaseSenderFile();
+        powerGuard.stop();
         endpoints.clear();
         offers.clear();
         fileOffers.clear();
