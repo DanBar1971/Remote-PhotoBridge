@@ -68,12 +68,12 @@ jobs:
       - name: Prepare release APK
         run: |
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk Remote-PhotoBridge-v1.0.5.apk
-          sha256sum Remote-PhotoBridge-v1.0.5.apk
+          cp app/build/outputs/apk/release/app-release.apk Remote-PhotoBridge-v1.0.6.apk
+          sha256sum Remote-PhotoBridge-v1.0.6.apk
           # Refuse to release anything signed with the ephemeral runner debug key.
           apksigner="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/35.0.0/apksigner"
           test -x "$apksigner"
-          cert="$("$apksigner" verify --print-certs Remote-PhotoBridge-v1.0.5.apk |
+          cert="$("$apksigner" verify --print-certs Remote-PhotoBridge-v1.0.6.apk |
             sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
           expected="cf7b070bc2622c2f48aa71d7d08f9f572dff04d1d5e547b29d201f24c6761f47"
           echo "Certificate SHA-256: $cert"
@@ -84,8 +84,8 @@ jobs:
       - name: Keep Actions build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Remote-PhotoBridge-v1.0.5-release
-          path: Remote-PhotoBridge-v1.0.5.apk
+          name: Remote-PhotoBridge-v1.0.6-release
+          path: Remote-PhotoBridge-v1.0.6.apk
           if-no-files-found: error
           retention-days: 30
       - name: Publish APK to GitHub Releases
@@ -94,8 +94,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="v1.0.5"
-          apk="Remote-PhotoBridge-v1.0.5.apk"
+          tag="v1.0.6"
+          apk="Remote-PhotoBridge-v1.0.6.apk"
           if gh release view "$tag" >/dev/null 2>&1; then
             if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$apk"; then
               echo "APK already published for this version. Refusing to overwrite a production release."
@@ -103,7 +103,7 @@ jobs:
             fi
             gh release upload "$tag" "$apk"
           else
-            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Remote PhotoBridge 1.0.5" --notes "Remote PhotoBridge 1.0.5: opção TODA A GALERIA (sem limite de data) além de Hoje/3/7/14/30 dias. Permite enviar fotos/vídeos de anos anteriores num telemóvel antigo, escolhendo independentemente TUDO (fotos + vídeos), SÓ FOTOGRAFIAS ou SÓ VÍDEOS. A seleção integral é sempre explícita e mostra quantidade/tamanho com aviso de tempo, bateria e espaço antes de enviar. O scanner MediaStore elimina o filtro DATE_TAKEN/DATE_ADDED quando se escolhe TODA A GALERIA; no Android com acesso parcial a app pede permissão integral para pesquisar a biblioteca. Mantém SHA-256 contra duplicados, Nearby offline, modos Estável/Rápido e assinatura fixa para atualizar por cima da 1.0.4." --latest
+            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Remote PhotoBridge 1.0.6" --notes "Remote PhotoBridge 1.0.6: antes de transferir, mostra separadamente quantidade e tamanho de fotografias, vídeos e total, em MB ou GB conforme o volume. Durante a transferência exibe além de 1/19 ficheiros a quantidade processada do lote em MB/GB, o tamanho total e os MB/GB restantes, juntamente com o nome e progresso em MB do ficheiro atual, tanto no Principal como no Secundário. Os valores são atualizados periodicamente mesmo quando a percentagem não mudou e são calculados a partir dos bytes Nearby. Repetidos contam como processados sem nova cópia. Mantém Nearby offline, seleção por dias ou toda a Galeria, modos Estável e Rápido, progresso percentual, deduplicação SHA-256 e mesma assinatura fixa para instalar por cima." --latest
           fi
           gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$apk"
           echo "Release de produção publicada e APK confirmado em:"
@@ -114,23 +114,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          url="$(gh release view v1.0.5 --json url --jq '.url')"
+          url="$(gh release view v1.0.6 --json url --jq '.url')"
           cat > RELEASE_STATUS.md <<EOF
-          # Remote PhotoBridge — APK de produção 1.0.5
+          # Remote PhotoBridge — APK de produção 1.0.6
 
           Release verificada pelo workflow: $url
 
-          APK: Remote-PhotoBridge-v1.0.5.apk
+          APK: Remote-PhotoBridge-v1.0.6.apk
 
-          SHA-256: $(sha256sum Remote-PhotoBridge-v1.0.5.apk | cut -d' ' -f1)
+          SHA-256: $(sha256sum Remote-PhotoBridge-v1.0.6.apk | cut -d' ' -f1)
 
-          Versão 1.0.5: nova opção TODA A GALERIA para fotos e vídeos antigos, prévia/consentimento, SHA-256 e assinatura fixa.
+          Versão 1.0.6: pré-visualização MB de fotos e vídeos, progresso em MB/GB por lote e ficheiro, bytes em falta e assinatura fixa.
           EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ -f BUILD_FAILURE.md ]; then git rm -f BUILD_FAILURE.md; fi
           git add RELEASE_STATUS.md
-          git commit -m "docs: verify published stable 1.0.5 APK in GitHub Releases [skip ci]"
+          git commit -m "docs: verify published stable 1.0.6 APK in GitHub Releases [skip ci]"
           git push origin HEAD:main
       - name: Save failure details to repository
         if: failure()
