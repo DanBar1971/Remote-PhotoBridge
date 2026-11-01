@@ -864,9 +864,15 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
                 : checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
         boolean partial = Build.VERSION.SDK_INT >= 34
                 && checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED;
-        access.addView(note("Fotografias para enviar: " +
-                (galleryGranted ? "Acesso permitido" : partial ? "Apenas fotografias selecionadas" : "Acesso não autorizado") +
-                ". No Principal não é necessário ler todas as imagens para as receber."));
+        boolean videoGranted = Build.VERSION.SDK_INT >= 33
+                ? checkSelfPermission(Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+                : checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        access.addView(note("Fotografias: " +
+                (galleryGranted ? "Permitido" : partial ? "Apenas selecionadas" : "Não autorizado") +
+                " · Vídeos: " + (videoGranted ? "Permitido" :
+                partial ? "Apenas selecionados" : "Não autorizado") +
+                ". A receção no Principal não precisa de ler a galeria."));
+
         access.addView(button("GERIR PERMISSÕES NO ANDROID", false, this::openAndroidAppSettings));
         access.addView(button("PEDIR ACESSOS PARA PARTILHAR", false,
                 () -> withNearbyPermissions(() ->
