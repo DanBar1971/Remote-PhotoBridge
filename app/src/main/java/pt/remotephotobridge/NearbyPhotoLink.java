@@ -322,7 +322,9 @@ final class NearbyPhotoLink {
                 long hashStarted = SystemClock.elapsedRealtime();
                 listener.state("A calcular SHA-256 de " + p.name +
                         " (" + (p.size / (1024 * 1024)) + " MB); ainda não está a enviar...");
-                final String hash = photos.photoHash(p);
+                final String hash = photos.photoHash(p, (checked, size) ->
+                        listener.state("A analisar SHA-256 (ainda não está a enviar): " +
+                                p.name + "\n" + TransferSizes.current(checked, size)));
                 long hashElapsed = Math.max(1, SystemClock.elapsedRealtime() - hashStarted);
                 listener.state("Hash concluído em " + (hashElapsed / 1000) +
                         " s. A pedir confirmação de duplicado...");
