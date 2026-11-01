@@ -11,6 +11,7 @@ import android.content.ContentValues;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -54,11 +55,14 @@ import java.util.concurrent.Executors;
  * Date selection lives only on the Secondary. Default: TODAY, never all photos.
  */
 public final class MainActivity extends Activity implements NearbyPhotoLink.Listener {
-    private static final int BG = Color.rgb(14, 23, 38);
-    private static final int CARD = Color.rgb(26, 39, 58);
-    private static final int ACCENT = Color.rgb(52, 211, 191);
-    private static final int TEXT = Color.rgb(235, 243, 249);
-    private static final int MUTED = Color.rgb(164, 179, 197);
+    private int BG = Color.rgb(14, 23, 38);
+    private int CARD = Color.rgb(26, 39, 58);
+    private int ACCENT = Color.rgb(52, 211, 191);
+    private int TEXT = Color.rgb(235, 243, 249);
+    private int MUTED = Color.rgb(164, 179, 197);
+    private int BORDER = Color.rgb(43, 64, 82);
+    private int SECONDARY_BG = Color.rgb(43, 62, 83);
+    private int ACCENT_TEXT = Color.rgb(14, 23, 38);
     private static final String PRINCIPAL = "principal", SECONDARY = "secundario";
     private static final int PERMISSION_CODE = 2048;
     private boolean returningFromCamera;
@@ -73,6 +77,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private PhotoTransport photos;
     private TransferDb db;
     private ExecutorService executor;
+    private ExecutorService updateExecutor;
     private String role;
     private Runnable afterPermission;
     private TextView statusView, detailsView;
@@ -82,18 +87,27 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private Uri lastReceivedGalleryUri;
     private boolean receiving;
     private String currentPage = "home";
+    private UpdateChecker.Result latestUpdate;
+    private String updateMessage = "Ainda não foi verificada a existência de atualizações.";
+    private TextView updateStatusView;
+    private Button updateDownloadButton;
+    private boolean updateCheckedThisSession;
+    private boolean updateChecking;
     private final StringBuilder log = new StringBuilder();
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         prefs = getSharedPreferences("photobridge_options", MODE_PRIVATE);
+        applyAppearance();
         String previousReceived = prefs.getString("latest_gallery_photo", null);
         if (previousReceived != null) lastReceivedGalleryUri = Uri.parse(previousReceived);
         role = getSharedPreferences("role", MODE_PRIVATE).getString("role", null);
         db = new TransferDb(this);
         photos = new PhotoTransport(this, db, this::state);
         executor = Executors.newSingleThreadExecutor();
+        // Isolate network checks from offline image lookup and photo operations.
+        updateExecutor = Executors.newSingleThreadExecutor();
         int services = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this);
         if (services != ConnectionResult.SUCCESS) {
             new AlertDialog.Builder(this).setTitle("Google Play Services indisponíveis")
@@ -103,6 +117,80 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         }
         nearby = new NearbyPhotoLink(this, photos, db, this);
         showHome();
+    }
+
+    /**
+     * Apply the complete native Android theme AND custom widget palette.
+     * Changing mode does not restart Nearby or recreate the Activity:
+     * connection and in-progress receive state are preserved.
+     */
+    private void applyAppearance() {
+        boolean systemDark = (getResources().getConfiguration().uiMode &
+                Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        boolean dark = ThemeMode.useDark(prefs.getString("appearance", ThemeMode.DARK), systemDark);
+        if (dark) {
+            BG = Color.rgb(14, 23, 38);
+            CARD = Color.rgb(26, 39, 58);
+            ACCENT = Color.rgb(52, 211, 191);
+            TEXT = Color.rgb(235, 243, 249);
+            MUTED = Color.rgb(164, 179, 197);
+            BORDER = Color.rgb(43, 64, 82);
+            SECONDARY_BG = Color.rgb(43, 62, 83);
+            ACCENT_TEXT = Color.rgb(14, 23, 38);
+        } else {
+            BG = Color.rgb(244, 247, 250);
+            CARD = Color.WHITE;
+            ACCENT = Color.rgb(8, 108, 102);
+            TEXT = Color.rgb(22, 40, 58);
+            MUTED = Color.rgb(78, 96, 113);
+            BORDER = Color.rgb(200, 215, 225);
+            SECONDARY_BG = Color.rgb(231, 238, 244);
+            ACCENT_TEXT = Color.WHITE;
+        }
+        setTheme(dark ? R.style.AppTheme : R.style.AppTheme_Light);
+        getWindow().setStatusBarColor(BG);
+        getWindow().setNavigationBarColor(BG);
+        View decor = getWindow().getDecorView();
+        int flags = decor.getSystemUiVisibility();
+        int lightFlags = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR |
+                View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        decor.setSystemUiVisibility(dark ? (flags & ~lightFlags) : (flags | lightFlags));
+    }
+
+    private void setAppearance(String mode) {
+        if (nearby != null && nearby.isBusy()) {
+            Toast.makeText(this, "Termina primeiro a transferência em curso.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        prefs.edit().putString("appearance", ThemeMode.normalize(mode)).apply();
+        applyAppearance();
+        redrawCurrentPage();
+    }
+
+    private void redrawCurrentPage() {
+        switch (currentPage) {
+            case "sharing":
+                renderSharing();
+                if (nearby != null && nearby.isConnected()) connected();
+                break;
+            case "role": showRoleChooser(); break;
+            case "options": showOptions(); break;
+            case "about": showAbout(); break;
+            case "support": showSupport(); break;
+            default: showHome(); break;
+        }
+    }
+
+    @Override public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        if (prefs != null && ThemeMode.SYSTEM.equals(
+                ThemeMode.normalize(prefs.getString("appearance", ThemeMode.DARK)))) {
+            // Automatically switch when the Android light/dark preference changes.
+            // Do not reinitialize Nearby or interrupt an ongoing transfer.
+            applyAppearance();
+            if (nearby == null || !nearby.isBusy()) redrawCurrentPage();
+        }
     }
 
     @Override protected void onResume() {
@@ -131,6 +219,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         if (photos != null) photos.shutdown();
         if (db != null) db.close();
         if (executor != null) executor.shutdownNow();
+        if (updateExecutor != null) updateExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -262,6 +351,13 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
                 item.setTextColor(TEXT);
                 item.setTextSize(17);
                 item.setPadding(dp(10), dp(18), dp(10), dp(18));
+                return item;
+            }
+            @Override public View getDropDownView(int position, View convertView, ViewGroup parent) {
+                TextView item = (TextView) super.getDropDownView(position, convertView, parent);
+                item.setTextColor(TEXT);
+                item.setBackgroundColor(CARD);
+                item.setPadding(dp(12), dp(12), dp(12), dp(12));
                 return item;
             }
         };
@@ -484,7 +580,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(CARD);
         bg.setCornerRadius(dp(18));
-        bg.setStroke(dp(1), Color.rgb(49, 86, 105));
+        bg.setStroke(dp(1), BORDER);
         surface.setBackground(new RippleDrawable(
                 ColorStateList.valueOf(Color.argb(92, 52, 211, 191)), bg, null));
         TextView pictogram = text(symbol, 32, ACCENT, true);
@@ -550,6 +646,42 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         root.addView(button("‹ MENU PRINCIPAL", false, this::showHome));
         root.addView(text("OPÇÕES", 23, TEXT, true));
 
+        LinearLayout appearance = card(root);
+        appearance.addView(text("ASPETO", 17, ACCENT, true));
+        String selectedAppearance = ThemeMode.normalize(
+                prefs.getString("appearance", ThemeMode.DARK));
+        appearance.addView(note("Tema atual: " + ThemeMode.label(selectedAppearance)));
+        appearance.addView(note("Escolhe as cores da aplicação. Em Automático acompanha o modo do Android."));
+        appearance.addView(button("CLARO", ThemeMode.LIGHT.equals(selectedAppearance),
+                () -> setAppearance(ThemeMode.LIGHT)));
+        appearance.addView(button("ESCURO", ThemeMode.DARK.equals(selectedAppearance),
+                () -> setAppearance(ThemeMode.DARK)));
+        appearance.addView(button("AUTOMÁTICO · SEGUIR ANDROID", ThemeMode.SYSTEM.equals(selectedAppearance),
+                () -> setAppearance(ThemeMode.SYSTEM)));
+
+        LinearLayout updates = card(root);
+        updates.addView(text("ATUALIZAÇÕES", 17, ACCENT, true));
+        updates.addView(note("Versão instalada: " + installedVersion()));
+        updateStatusView = note(updateMessage);
+        updates.addView(updateStatusView);
+        updates.addView(button("PROCURAR ATUALIZAÇÕES", false, this::checkForUpdates));
+        updateDownloadButton = button("DESCARREGAR ATUALIZAÇÃO", true, () -> {
+            if (latestUpdate != null && latestUpdate.available) {
+                // Opens the official GitHub APK in the user's browser. Android
+                // installation always requires the user's own confirmation.
+                openWebPage(latestUpdate.apkUrl.isEmpty()
+                        ? latestUpdate.releaseUrl : latestUpdate.apkUrl);
+            }
+        });
+        updateDownloadButton.setVisibility(latestUpdate != null && latestUpdate.available
+                ? View.VISIBLE : View.GONE);
+        updates.addView(updateDownloadButton);
+        updates.addView(note("A verificação requer Internet apenas neste momento. As fotografias continuam a ser partilhadas sem Internet."));
+        if (!updateCheckedThisSession) {
+            updateCheckedThisSession = true;
+            checkForUpdates();
+        }
+
         LinearLayout functions = card(root);
         functions.addView(text("FUNÇÃO DESTE TELEMÓVEL", 17, ACCENT, true));
         functions.addView(note(role == null ? "Ainda não definida." :
@@ -586,6 +718,51 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         about.addView(button("ACERCA DA REMOTE PHOTOBRIDGE", false, this::showAbout));
         about.addView(button("☕ OFERECER UM CAFÉ", false, this::showDonate));
         about.addView(button("✉ CONTACTAR SUPORTE", false, this::showSupport));
+    }
+
+    private String installedVersion() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "indisponível";
+        }
+    }
+
+    private void checkForUpdates() {
+        if (updateChecking || updateExecutor == null || updateExecutor.isShutdown()) return;
+        updateChecking = true;
+        updateMessage = "A consultar a última versão estável no GitHub...";
+        if (updateStatusView != null) updateStatusView.setText(updateMessage);
+        updateExecutor.execute(() -> {
+            try {
+                UpdateChecker.Result result = UpdateChecker.check(this);
+                runOnUiThread(() -> {
+                    updateChecking = false;
+                    latestUpdate = result;
+                    if (result.available) {
+                        updateMessage = "Nova versão disponível: " + result.latest +
+                                " (instalada: " + result.installed + ").";
+                    } else {
+                        updateMessage = "A aplicação está atualizada (versão " +
+                                result.installed + ").";
+                    }
+                    if (updateStatusView != null) updateStatusView.setText(updateMessage);
+                    if (updateDownloadButton != null) updateDownloadButton.setVisibility(
+                            result.available ? View.VISIBLE : View.GONE);
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    updateChecking = false;
+                    latestUpdate = null;
+                    updateMessage = "Não foi possível verificar atualizações: " +
+                            error.getMessage() +
+                            ". Confirma a ligação à Internet e tenta novamente.";
+                    if (updateStatusView != null) updateStatusView.setText(updateMessage);
+                    if (updateDownloadButton != null)
+                        updateDownloadButton.setVisibility(View.GONE);
+                });
+            }
+        });
     }
 
     private void openAndroidAppSettings() {
@@ -625,7 +802,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         root.addView(button("‹ OPÇÕES", false, this::showOptions));
         LinearLayout info = card(root);
         info.addView(text("REMOTE PHOTO BRIDGE", 22, ACCENT, true));
-        info.addView(note("Versão 1.0.0 · Android"));
+        info.addView(note("Versão 1.0.1 · Android"));
         info.addView(note("Autor: Daniel Barradas"));
         info.addView(note("Transfere fotografias entre Androids sem Internet através de Nearby Connections. O Principal só recebe, o Secundário só envia. Sem guardar fotos na nuvem."));
         info.addView(note("Suporte: daniel.barradas@gmail.com"));
@@ -714,7 +891,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
             String subject = "Remote PhotoBridge · " + types.getSelectedItem();
             String body = "Nome: " + name.getText().toString().trim() +
                     "\nEmail para resposta: " + email +
-                    "\nApp: Remote PhotoBridge 1.0.0" +
+                    "\nApp: Remote PhotoBridge 1.0.1" +
                     "\nAndroid: " + Build.VERSION.RELEASE + " (" + Build.MODEL + ")" +
                     "\n\n" + description;
             Intent send = new Intent(Intent.ACTION_SENDTO);
@@ -738,7 +915,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         GradientDrawable background = new GradientDrawable();
         background.setColor(CARD);
         background.setCornerRadius(dp(18));
-        background.setStroke(dp(1), Color.rgb(43, 64, 82));
+        background.setStroke(dp(1), BORDER);
         card.setBackground(background);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
         p.bottomMargin = dp(16);
@@ -751,10 +928,10 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         button.setText(label);
         button.setAllCaps(false);
         button.setTextSize(15);
-        button.setTextColor(primary ? BG : TEXT);
+        button.setTextColor(primary ? ACCENT_TEXT : TEXT);
         button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         GradientDrawable background = new GradientDrawable();
-        background.setColor(primary ? ACCENT : Color.rgb(43, 62, 83));
+        background.setColor(primary ? ACCENT : SECONDARY_BG);
         background.setCornerRadius(dp(12));
         button.setBackground(new RippleDrawable(
                 ColorStateList.valueOf(Color.argb(90, 255, 255, 255)), background, null));
