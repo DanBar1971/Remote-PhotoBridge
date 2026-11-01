@@ -8,6 +8,7 @@ import android.database.Cursor;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
+import android.os.SystemClock;
 import android.os.Environment;
 import android.provider.MediaStore;
 
@@ -235,13 +236,40 @@ final class PhotoTransport {
         msg("RECEÇÃO CONCLUÍDA: " + saved + " novas fotos; " + duplicates + " repetidas ignoradas.");
     }
 
+    interface HashProgress {
+        void read(long bytesRead, long fileBytes);
+    }
+
     String photoHash(Photo p) throws IOException {
+        return photoHash(p, null);
+    }
+
+    String photoHash(Photo p, HashProgress progress) throws IOException {
         String existing = db.knownSourceHash(p.id, p.size, p.modified);
-        if (existing != null) return existing;
+        if (existing != null) {
+            if (progress != null) progress.read(p.size, p.size);
+            return existing;
+        }
         MessageDigest digest = digest();
         try (InputStream in = context.getContentResolver().openInputStream(p.uri)) {
             if (in == null) throw new IOException("Não foi possível abrir " + p.name);
-            copyExactly(in, null, p.size, digest);
+            byte[] block = new byte[CHUNK];
+            long read = 0L;
+            long nextUpdate = 0L;
+            while (read < p.size) {
+                int n = in.read(block, 0, (int)Math.min(block.length, p.size - read));
+                if (n < 0) throw new IOException("O vídeo/foto terminou antes do tamanho anunciado.");
+                if (n == 0) continue;
+                digest.update(block, 0, n);
+                read += n;
+                if (progress != null) {
+                    long now = SystemClock.elapsedRealtime();
+                    if (now >= nextUpdate || read == p.size) {
+                        progress.read(read, p.size);
+                        nextUpdate = now + 450L;
+                    }
+                }
+            }
         }
         String hash = hex(digest.digest());
         db.saveSourceHash(p.id, p.size, p.modified, hash);
