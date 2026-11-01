@@ -55,3 +55,9 @@ Na aplicação: **Opções → Aspeto**. Escolhe **Claro** (fundos claros e text
 A escolha não altera nem reinicia a camada de transferência Nearby. A aplicação evita mudanças de tema durante envios em curso. Para manter o aspeto anterior dos utilizadores existentes, a opção inicial permanece **Escuro** até à escolha manual de outro modo.
 
 Versão de produção, assinatura fixa preservada, **atualização por cima da 1.0.0 sem desinstalar**.
+
+## Atualizações disponíveis (1.0.1)
+
+Em **Opções → Atualizações**, a aplicação mostra a versão instalada, consulta a última release **estável** publicada no GitHub e compara os números de versão. Se houver atualização, aparece **DESCARREGAR ATUALIZAÇÃO**, que abre o APK oficial do GitHub no navegador para instalar por cima, mediante confirmação do Android. A consulta é feita quando se abre Opções pela primeira vez na sessão ou ao tocar em **PROCURAR ATUALIZAÇÕES**. Não descarrega nem instala silenciosamente. A consulta requer Internet, mas a transferência de fotografias por Nearby continua totalmente offline. Em caso de falha de ligação, a app mostra o erro sem interromper a sincronização.
+
+Apenas as versões não experimentais do GitHub Releases são consideradas. A assinatura do APK e o `versionCode` continuam iguais/compatíveis com as versões estáveis anteriores.
