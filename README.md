@@ -1,4 +1,4 @@
-# Remote PhotoBridge — Android 1.0.2
+# Remote PhotoBridge — Android 1.0.3
 
 Aplicação Android para **fotografar, consultar a Galeria e transferir fotos locais** entre dois telemóveis, sem Internet, SIM, conta Google para sincronização ou ligação ao mesmo router.
 
@@ -40,9 +40,9 @@ Não existem pagamentos dentro da aplicação.
 
 ## APK de produção e atualizações
 
-**Versão 1.0.2 (versionCode 102)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
+**Versão 1.0.3 (versionCode 103)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
 
-O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.2.apk` na release estável `v1.0.2`. Não publica se o certificado não corresponder ou estiver ausente.
+O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.3.apk` na release estável `v1.0.3`. Não publica se o certificado não corresponder ou estiver ausente.
 
 Os testes automáticos de datas e compilação não substituem a validação física da abertura das apps Câmara/Galeria em diferentes fabricantes.
 
@@ -69,3 +69,15 @@ Em **Partilhar**, os dois Androids apresentam uma barra com a **percentagem real
 O Android mostra também uma notificação discreta de progresso com a percentagem, e uma notificação final **“Fotografias enviadas!”** ou **“Fotografias recebidas!”**, com número de novas e repetidas. Se uma transferência for interrompida, a notificação indica o erro em vez de anunciar conclusão. O modo de notificação funciona sem Internet nem SIM. Em Android 13+ a aplicação solicita a permissão opcional de notificações; recusá-la não impede a barra na app nem a transferência.
 
 Ao regressar ao menu **Partilhar** durante a sessão, a barra conserva o último progresso. Continua a ser uma aplicação que trabalha com os telemóveis ligados; não é prometido um serviço permanente em segundo plano. A versão 1.0.2 mantém o mesmo certificado protegido da 1.0.1 e instala por cima.
+
+## Novo na 1.0.3 — fotos e vídeos sem Internet
+
+- No Secundário, **Partilhar** permite escolher **Fotografias e vídeos** (padrão), **Só fotografias** ou **Só vídeos**, mantendo Hoje (padrão) e últimos 3, 7, 14 ou 30 dias. O número de fotos/vídeos e tamanho total em MB são apresentados antes da confirmação. Nunca envia a galeria inteira.
+- A partir do Android 13, o Secundário pede acesso de leitura `READ_MEDIA_VIDEO` além de `READ_MEDIA_IMAGES`; em Android 14+, as permissões podem limitar a pesquisa aos itens escolhidos. No Principal apenas se usam os acessos necessários para gravar no MediaStore.
+- Fotos são inseridas em `Pictures/Remote PhotoBridge` e vídeos em `Movies/Remote PhotoBridge`, ambas pastas da biblioteca multimédia do Android. O original é copiado byte a byte e validado por SHA-256. Vídeos são preservados sem compressão nem alteração de resolução; ficheiros já recebidos não são transferidos de novo.
+- Cada ficheiro pode ter até 12 GiB, sujeito ao espaço livre disponível, limites do dispositivo e estabilidade do Nearby. Vídeos grandes podem ser significativamente mais lentos, inclusive enquanto a app calcula inicialmente a assinatura de integridade.
+- Em caso de queda da ligação, a app reinicia a descoberta/anúncio Nearby automaticamente. É necessário confirmar outra vez os códigos de segurança. No Secundário aparece **Repetir transferência interrompida**, que reenvia a seleção original sem duplicar itens confirmados no Principal.
+- Compatibilidade: os dois equipamentos devem instalar 1.0.3 para o envio de vídeos. A ligação com uma versão antiga continua adequada a fotos. O protocolo troca um aviso de capacidades e não envia vídeos a uma versão sem suporte.
+- Progresso percentual e notificações continuam a funcionar para ambos os tipos de ficheiro.
+
+A nova versão precisa de validação real em diferentes Androids e com vídeos grandes. Uma ligação Nearby não garante utilizar sempre Wi-Fi; o transporte escolhido automaticamente pode variar conforme o equipamento.
