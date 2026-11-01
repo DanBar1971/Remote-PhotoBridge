@@ -49,6 +49,11 @@ final class NearbyPhotoLink {
         void disconnected();
         /** Called only after an original photo is verified and inserted in Gallery. */
         void photoReceived(Uri galleryUri);
+        /** Byte-weighted progress, updated while Nearby transmits actual bytes. */
+        void transferProgress(boolean sending, int percent, int completed, int total, String description);
+        /** Fired only after all sender acknowledgements / receiver import checks. */
+        void transferFinished(boolean sending, int newPhotos, int duplicates, int total);
+        void transferInterrupted(boolean sending, String message);
     }
 
     private static final String SERVICE = "pt.remotephotobridge.nearby.photos.v1";
@@ -71,6 +76,13 @@ final class NearbyPhotoLink {
     private String endpoint;
     private List<PhotoTransport.Photo> queue = new ArrayList<>();
     private int position, saved, skipped;
+    private long totalBytes, acknowledgedBytes, currentPayloadBytes;
+    private long activePayloadId = -1L;
+    private int receivedCount, receivedNew, receivedDuplicates, receiverTotal;
+    private long receiverExpectedBytes, receiverAcknowledgedBytes, receiverInFlightBytes;
+    private boolean receiverSessionActive;
+    private int lastProgressPercent = -1;
+    private int lastProgressDone = -1;
     private volatile String activeOffer;
     private volatile PhotoTransport.Photo activePhoto;
     private ParcelFileDescriptor activeDescriptor;
@@ -175,6 +187,9 @@ final class NearbyPhotoLink {
             if (id.equals(endpoint)) {
                 connected = false;
                 connecting = false;
+                if (busy || receiverSessionActive)
+                    abort("Os telemóveis desligaram-se durante a transferência.");
+                connected = false;
                 busy = false;
                 endpoint = null;
                 releaseSenderFile();
@@ -200,24 +215,42 @@ final class NearbyPhotoLink {
         }
         busy = true;
         saved = skipped = position = 0;
+        acknowledgedBytes = currentPayloadBytes = 0;
+        activePayloadId = -1L;
+        lastProgressPercent = lastProgressDone = -1;
         queue = new ArrayList<>(selected);
+        totalBytes = 0L;
+        for (PhotoTransport.Photo p : queue) {
+            if (p.size > 0 && Long.MAX_VALUE - totalBytes >= p.size)
+                totalBytes += p.size;
+        }
         listener.state("A preparar " + queue.size() + " fotografias do período selecionado...");
-        nextPhoto();
+        reportProgress(true, false, "A preparar envio...");
+        try {
+            sendControl(json("start").put("count", queue.size()).put("bytes", totalBytes));
+            nextPhoto();
+        } catch (Exception e) { abort("Não foi possível iniciar a transferência: " + e.getMessage()); }
     }
 
     private void nextPhoto() {
         if (!connected || !busy) return;
         if (position >= queue.size()) {
             int total = queue.size();
-            busy = false;
-            releaseSenderFile();
-            listener.state("CONCLUÍDO: " + saved + " novas na galeria do Principal; " +
-                    skipped + " já existentes (" + total + " selecionadas).");
+            // Complete means all selected images have been accepted or skipped
+            // by the Principal, not merely queued for wireless transmission.
             try {
                 sendControl(json("finish").put("count", total)
                         .put("saved", saved).put("skipped", skipped));
+                reportProgress(true, true, "Envio concluído.");
+                listener.transferFinished(true, saved, skipped, total);
+                listener.state("CONCLUÍDO: " + saved + " novas na galeria do Principal; " +
+                        skipped + " já existentes (" + total + " selecionadas).");
             } catch (Exception e) {
-                listener.state("A sincronização terminou, mas falhou o resumo: " + e.getMessage());
+                abort("Falhou a confirmação final: " + e.getMessage());
+                return;
+            } finally {
+                busy = false;
+                releaseSenderFile();
             }
             return;
         }
@@ -249,6 +282,8 @@ final class NearbyPhotoLink {
                 activeDescriptor = context.getContentResolver().openFileDescriptor(activePhoto.uri, "r");
                 if (activeDescriptor == null) throw new IOException("Ficheiro original indisponível.");
                 Payload data = Payload.fromFile(activeDescriptor);
+                activePayloadId = data.getId();
+                currentPayloadBytes = 0L;
                 sendControl(json("file").put("id", offerId).put("payload", data.getId()));
                 connections.sendPayload(endpoint, data)
                         .addOnFailureListener(e -> abort("Envio de fotografia falhou: " + e.getMessage()));
@@ -273,10 +308,30 @@ final class NearbyPhotoLink {
         }
         @Override public void onPayloadTransferUpdate(String id, PayloadTransferUpdate update) {
             if (!id.equals(endpoint)) return;
+            boolean currentSenderFile = !receivingMode && busy &&
+                    activePayloadId == update.getPayloadId();
+            boolean currentReceiverFile = receivingMode && receiverSessionActive &&
+                    (inboundFiles.containsKey(update.getPayloadId()) ||
+                     fileOffers.containsKey(update.getPayloadId()));
             if (update.getStatus() == PayloadTransferUpdate.Status.FAILURE ||
                     update.getStatus() == PayloadTransferUpdate.Status.CANCELED) {
-                abort("Ficheiro interrompido. Podes repetir sem duplicar fotografias.");
+                if (currentSenderFile || currentReceiverFile)
+                    abort("Ficheiro interrompido. Podes repetir sem duplicar fotografias.");
                 return;
+            }
+            if (update.getStatus() == PayloadTransferUpdate.Status.IN_PROGRESS ||
+                    update.getStatus() == PayloadTransferUpdate.Status.SUCCESS) {
+                long transferred = Math.max(0L, update.getBytesTransferred());
+                if (currentSenderFile) {
+                    currentPayloadBytes = Math.min(activePhoto == null ? transferred :
+                            activePhoto.size, transferred);
+                    reportProgress(true, false, "A enviar fotografia " +
+                            (position + 1) + "/" + queue.size());
+                } else if (currentReceiverFile) {
+                    receiverInFlightBytes = Math.max(receiverInFlightBytes, transferred);
+                    reportProgress(false, false, "A receber fotografia " +
+                            (receivedCount + 1) + "/" + receiverTotal);
+                }
             }
             if (update.getStatus() == PayloadTransferUpdate.Status.SUCCESS && receivingMode &&
                     (inboundFiles.containsKey(update.getPayloadId()) ||
@@ -290,7 +345,20 @@ final class NearbyPhotoLink {
     private void handleControl(JSONObject cmd) throws Exception {
         String type = cmd.getString("type");
         String id = cmd.optString("id", "");
-        if ("offer".equals(type) && receivingMode) {
+        if ("start".equals(type) && receivingMode) {
+            int count = cmd.getInt("count");
+            long bytes = cmd.getLong("bytes");
+            if (count < 1 || count > 200000 || bytes < 0)
+                throw new IOException("Resumo de fotografias inválido.");
+            receiverTotal = count;
+            receiverExpectedBytes = bytes;
+            receiverAcknowledgedBytes = receiverInFlightBytes = 0L;
+            receivedCount = receivedNew = receivedDuplicates = 0;
+            receiverSessionActive = true;
+            lastProgressPercent = lastProgressDone = -1;
+            listener.state("A iniciar receção de " + count + " fotografias...");
+            reportProgress(false, false, "A aguardar fotografias...");
+        } else if ("offer".equals(type) && receivingMode) {
             String sha = cmd.getString("hash");
             long bytes = cmd.getLong("size");
             String mime = cmd.getString("mime");
@@ -301,12 +369,21 @@ final class NearbyPhotoLink {
             }
             if (db.alreadyReceived(sha)) {
                 sendControl(json("skip").put("id", id));
+                receivedCount++;
+                receivedDuplicates++;
+                receiverAcknowledgedBytes += bytes;
+                receiverInFlightBytes = 0L;
+                reportProgress(false, false, "Fotografia já existente.");
             } else {
                 offers.put(id, cmd);
                 sendControl(json("need").put("id", id));
             }
         } else if ("skip".equals(type) && !receivingMode && id.equals(activeOffer)) {
+            if (activePhoto != null) acknowledgedBytes += activePhoto.size;
             skipped++;
+            currentPayloadBytes = 0L;
+            reportProgress(true, false, "Fotografia já existente.");
+            releaseSenderFile();
             position++;
             listener.state("Fotografia já guardada no Principal; ignorada.");
             nextPhoto();
@@ -324,12 +401,28 @@ final class NearbyPhotoLink {
                 return;
             }
             if (cmd.optBoolean("saved", false)) saved++; else skipped++;
+            if (activePhoto != null) acknowledgedBytes += activePhoto.size;
+            currentPayloadBytes = 0L;
+            reportProgress(true, false, "Fotografia confirmada pelo Principal.");
             releaseSenderFile();
             position++;
             nextPhoto();
         } else if ("finish".equals(type) && receivingMode) {
-            listener.state("Receção terminada. Novas fotografias na Galeria: " +
-                    cmd.optInt("saved", 0) + "; repetidas: " + cmd.optInt("skipped", 0) + ".");
+            int expected = cmd.optInt("count", -1);
+            if (receiverSessionActive && expected == receiverTotal &&
+                    receivedCount == receiverTotal &&
+                    receivedNew + receivedDuplicates == receivedCount) {
+                reportProgress(false, true, "Receção concluída.");
+                listener.transferFinished(false, receivedNew, receivedDuplicates, receivedCount);
+                listener.state("Receção terminada. Novas fotografias na Galeria: " +
+                        receivedNew + "; repetidas: " + receivedDuplicates + ".");
+            } else {
+                listener.transferInterrupted(false,
+                        "A receção terminou sem confirmar todas as fotografias.");
+                listener.state("Receção incompleta: confirma os resultados no Secundário.");
+            }
+            receiverSessionActive = false;
+            busy = false;
         }
     }
 
@@ -371,10 +464,34 @@ final class NearbyPhotoLink {
                 catch (Exception ignored) { }
             }
             try {
+                // Count only fully verified (or already present) images.
+                if (error.isEmpty()) {
+                    receivedCount++;
+                    if (saved) receivedNew++; else receivedDuplicates++;
+                    receiverAcknowledgedBytes += metadata.optLong("size", 0L);
+                    receiverInFlightBytes = 0L;
+                    reportProgress(false, false, "Fotografia guardada e verificada.");
+                }
                 sendControl(json("ack").put("id", offerId).put("ok", error.isEmpty())
                         .put("saved", saved).put("reason", error));
             } catch (Exception ignored) { }
         });
+    }
+
+    private void reportProgress(boolean sender, boolean finished, String detail) {
+        if (!sender && !receiverSessionActive && !finished) return;
+        long done = sender ? acknowledgedBytes : receiverAcknowledgedBytes;
+        long inflight = sender ? currentPayloadBytes : receiverInFlightBytes;
+        long all = sender ? totalBytes : receiverExpectedBytes;
+        int count = sender ? queue.size() : receiverTotal;
+        int confirmed = sender ? saved + skipped : receivedCount;
+        int percent = TransferProgressMath.percentage(
+                done, all, inflight, confirmed, count, finished);
+        if (percent != lastProgressPercent || confirmed != lastProgressDone || finished) {
+            lastProgressPercent = percent;
+            lastProgressDone = confirmed;
+            listener.transferProgress(sender, percent, confirmed, count, detail);
+        }
     }
 
     private JSONObject json(String type) {
@@ -395,8 +512,13 @@ final class NearbyPhotoLink {
     }
 
     private void abort(String error) {
+        boolean wasTransfer = busy || receiverSessionActive;
+        boolean sending = !receivingMode;
         busy = false;
+        receiverSessionActive = false;
         releaseSenderFile();
+        currentPayloadBytes = receiverInFlightBytes = 0L;
+        if (wasTransfer) listener.transferInterrupted(sending, error);
         listener.state("TRANSFERÊNCIA PARADA: " + error);
     }
 
@@ -407,9 +529,12 @@ final class NearbyPhotoLink {
         }
         activeOffer = null;
         activePhoto = null;
+        activePayloadId = -1L;
     }
 
     void close() {
+        if (busy || receiverSessionActive)
+            abort("A ligação foi terminada antes da confirmação final.");
         connections.stopAdvertising();
         connections.stopDiscovery();
         connections.stopAllEndpoints();
