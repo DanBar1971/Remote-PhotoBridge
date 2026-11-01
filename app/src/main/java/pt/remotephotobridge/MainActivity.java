@@ -647,15 +647,26 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     }
 
     private void showDonate() {
-        new AlertDialog.Builder(this)
-            .setTitle("☕ Oferecer um cafezinho")
-            .setMessage("Apoiar o desenvolvimento é opcional. Escolhe o valor na página externa; nenhum pagamento é feito nesta aplicação.")
-            .setItems(new String[]{"☕ Buy Me a Coffee (primeira opção)", "PayPal (alternativa)"}, (dialog, which) ->
-                    openWebPage(which == 0
-                            ? "https://buymeacoffee.com/danielbarr7"
-                            : "https://www.paypal.com/paypalme/djjindungo"))
-            .setNegativeButton("Cancelar", null)
-            .show();
+        // Exactly as in SaúdePrática: two separate buttons. On some Xiaomi
+        // versions setMessage()+setItems() hides the choices entirely.
+        LinearLayout choices = new LinearLayout(this);
+        choices.setOrientation(LinearLayout.VERTICAL);
+        choices.setPadding(dp(17), dp(5), dp(17), dp(8));
+        choices.addView(note("O apoio é opcional. Escolhe o valor na página externa; nenhum pagamento é feito dentro da app."));
+        AlertDialog popup = new AlertDialog.Builder(this)
+                .setTitle("☕ Oferecer um cafezinho")
+                .setView(choices)
+                .setNegativeButton("Cancelar", null)
+                .create();
+        choices.addView(button("☕ BUY ME A COFFEE · PRIMEIRA OPÇÃO", true, () -> {
+            popup.dismiss();
+            openWebPage("https://buymeacoffee.com/danielbarr7");
+        }));
+        choices.addView(button("PAYPAL · ALTERNATIVA", false, () -> {
+            popup.dismiss();
+            openWebPage("https://www.paypal.com/paypalme/djjindungo");
+        }));
+        popup.show();
     }
 
     private void showSupport() {
