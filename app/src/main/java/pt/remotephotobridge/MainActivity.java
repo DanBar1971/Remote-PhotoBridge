@@ -32,6 +32,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.EditText;
@@ -65,6 +66,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private int ACCENT_TEXT = Color.rgb(14, 23, 38);
     private static final String PRINCIPAL = "principal", SECONDARY = "secundario";
     private static final int PERMISSION_CODE = 2048;
+    private static final int NOTIFICATION_PERMISSION_CODE = 2090;
     private boolean returningFromCamera;
     private static final int[] DAYS = {1, 3, 7, 14, 30};
     private static final String[] PERIODS = {
@@ -85,6 +87,14 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private Spinner periodView;
     private Button galleryButton;
     private Uri lastReceivedGalleryUri;
+    private TransferNotifier transferNotifier;
+    private LinearLayout progressCard;
+    private ProgressBar progressBar;
+    private TextView percentView, progressDescription;
+    private boolean hasTransferResult;
+    private int currentTransferPercent;
+    private String currentTransferText = "";
+    private boolean notificationPromptAttempted;
     private boolean receiving;
     private String currentPage = "home";
     private UpdateChecker.Result latestUpdate;
@@ -104,6 +114,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         if (previousReceived != null) lastReceivedGalleryUri = Uri.parse(previousReceived);
         role = getSharedPreferences("role", MODE_PRIVATE).getString("role", null);
         db = new TransferDb(this);
+        transferNotifier = new TransferNotifier(this);
         photos = new PhotoTransport(this, db, this::state);
         executor = Executors.newSingleThreadExecutor();
         // Isolate network checks from offline image lookup and photo operations.
@@ -271,6 +282,10 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         peersView = null;
         periodView = null;
         galleryButton = null;
+        progressCard = null;
+        progressBar = null;
+        percentView = null;
+        progressDescription = null;
         LinearLayout root = screen();
         root.addView(button("‹ MENU PRINCIPAL", false, this::showHome));
         LinearLayout roleCard = card(root);
@@ -284,6 +299,26 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         stateCard.addView(text("ESTADO DA LIGAÇÃO", 14, ACCENT, true));
         statusView = text("Não ligado. Segue os passos abaixo.", 16, TEXT, true);
         stateCard.addView(statusView);
+
+        // Always visible while a transfer is in progress, even if the user
+        // navigates away and returns to Partilhar.
+        progressCard = card(root);
+        progressCard.addView(text("PROGRESSO DAS FOTOGRAFIAS", 15, ACCENT, true));
+        percentView = text(currentTransferPercent + "%", 30, TEXT, true);
+        percentView.setGravity(Gravity.CENTER);
+        progressCard.addView(percentView);
+        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progressBar.setMax(100);
+        progressBar.setProgress(currentTransferPercent);
+        progressBar.setProgressTintList(ColorStateList.valueOf(ACCENT));
+        progressBar.setProgressBackgroundTintList(ColorStateList.valueOf(SECONDARY_BG));
+        LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, dp(16));
+        barParams.topMargin = dp(9);
+        barParams.bottomMargin = dp(9);
+        progressCard.addView(progressBar, barParams);
+        progressDescription = note(currentTransferText);
+        progressCard.addView(progressDescription);
+        progressCard.setVisibility(hasTransferResult ? View.VISIBLE : View.GONE);
 
         if (PRINCIPAL.equals(role)) renderPrincipal(root);
         else renderSecondary(root);
@@ -321,6 +356,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         card.addView(button("RECEBER FOTOGRAFIAS", true, () -> withNearbyPermissions(() -> {
             if (nearby == null) return;
             receiving = true;
+            askNotificationPermissionIfNeeded();
             nearby.receive();
         })));
         galleryButton = button("ABRIR GALERIA DO TELEMÓVEL", false, this::openSystemGallery);
@@ -370,8 +406,10 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         send.addView(periodView);
         send.addView(button("VER FOTOS DESTE PERÍODO", false, () ->
                 withGalleryPermission(false)));
-        send.addView(button("SINCRONIZAR FOTOGRAFIAS", true, () ->
-                withGalleryPermission(true)));
+        send.addView(button("SINCRONIZAR FOTOGRAFIAS", true, () -> {
+            askNotificationPermissionIfNeeded();
+            withGalleryPermission(true);
+        }));
         send.addView(note("Antes de enviar, a aplicação mostra quantas fotografias encontrou. As fotos antigas ficam de fora e as já recebidas não são duplicadas."));
     }
 
@@ -432,6 +470,60 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private int periodIndex(int days) {
         for (int i = 0; i < DAYS.length; i++) if (DAYS[i] == days) return i;
         return 0;
+    }
+
+    private void askNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < 33 || notificationPromptAttempted ||
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                        PackageManager.PERMISSION_GRANTED) return;
+        notificationPromptAttempted = true;
+        // Declining this permission must NEVER prevent the actual transfer.
+        requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                NOTIFICATION_PERMISSION_CODE);
+    }
+
+    @Override public void transferProgress(boolean sending, int percent,
+                                            int completed, int total, String description) {
+        runOnUiThread(() -> {
+            hasTransferResult = true;
+            currentTransferPercent = Math.max(0, Math.min(100, percent));
+            currentTransferText = (sending ? "A enviar" : "A receber") +
+                    " · " + completed + "/" + total + " fotografias confirmadas" +
+                    (description == null || description.isEmpty() ? "" : "\n" + description);
+            if (progressCard != null) progressCard.setVisibility(View.VISIBLE);
+            if (progressBar != null) progressBar.setProgress(currentTransferPercent);
+            if (percentView != null) percentView.setText(currentTransferPercent + "%");
+            if (progressDescription != null) progressDescription.setText(currentTransferText);
+            if (transferNotifier != null && percent < 100)
+                transferNotifier.progress(sending, percent, completed, total);
+        });
+    }
+
+    @Override public void transferFinished(boolean sending, int newPhotos, int duplicates, int total) {
+        runOnUiThread(() -> {
+            hasTransferResult = true;
+            currentTransferPercent = 100;
+            currentTransferText = (sending ? "Envio concluído!" : "Receção concluída!") +
+                    "\n" + total + " fotografias processadas · " + newPhotos +
+                    " novas · " + duplicates + " repetidas.";
+            if (progressCard != null) progressCard.setVisibility(View.VISIBLE);
+            if (progressBar != null) progressBar.setProgress(100);
+            if (percentView != null) percentView.setText("100%");
+            if (progressDescription != null) progressDescription.setText(currentTransferText);
+            if (transferNotifier != null) transferNotifier.finished(
+                    sending, newPhotos, duplicates, total);
+        });
+    }
+
+    @Override public void transferInterrupted(boolean sending, String message) {
+        runOnUiThread(() -> {
+            hasTransferResult = true;
+            currentTransferText = (sending ? "Envio interrompido: " : "Receção interrompida: ") +
+                    message;
+            if (progressCard != null) progressCard.setVisibility(View.VISIBLE);
+            if (progressDescription != null) progressDescription.setText(currentTransferText);
+            if (transferNotifier != null) transferNotifier.failed(message);
+        });
     }
 
     private void withNearbyPermissions(Runnable action) {
