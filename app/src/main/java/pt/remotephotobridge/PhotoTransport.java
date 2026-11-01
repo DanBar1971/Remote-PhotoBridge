@@ -45,7 +45,7 @@ import java.util.concurrent.Executors;
 final class PhotoTransport {
     interface Updates { void onEvent(String text); }
     private static final int PORT = 38988;
-    private static final long MAX_PHOTO_BYTES = 2_000_000_000L;
+    private static final long MAX_PHOTO_BYTES = 12L * 1024 * 1024 * 1024;
     private static final int CHUNK = 64 * 1024;
     private final Context context;
     private final TransferDb db;
@@ -254,60 +254,85 @@ final class PhotoTransport {
      * dates including today. No "all gallery" option by design.
      */
     List<Photo> getPhotos(int days) {
+        return getMedia(days, "photos");
+    }
+
+    /**
+     * Media is selected on the Secondary BEFORE hashing/sending. The same
+     * local-midnight day window applies to images and videos, independently
+     * of Android provider ordering or MediaStore date column availability.
+     */
+    List<Photo> getMedia(int days, String mediaType) {
+        if (!("photos".equals(mediaType) || "videos".equals(mediaType) ||
+                "both".equals(mediaType))) throw new IllegalArgumentException("Tipo de multimédia inválido");
         long cutoffMillis = PhotoDateRange.startMillis(days, Calendar.getInstance());
-        long tomorrowMillis = System.currentTimeMillis() + 86_400_000L;
-        List<Photo> photos = new ArrayList<>();
+        long latest = System.currentTimeMillis() + 86_400_000L;
+        List<Photo> items = new ArrayList<>();
+        if (!"videos".equals(mediaType)) {
+            appendMedia(items, MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    false, cutoffMillis, latest);
+        }
+        if (!"photos".equals(mediaType)) {
+            appendMedia(items, MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    true, cutoffMillis, latest);
+        }
+        items.sort((a,b) -> Long.compare(b.dateTaken, a.dateTaken));
+        return items;
+    }
+
+    private void appendMedia(List<Photo> items, Uri collection, boolean video,
+                             long cutoff, long latest) {
         String[] columns = {
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DISPLAY_NAME,
-                MediaStore.Images.Media.SIZE,
-                MediaStore.Images.Media.MIME_TYPE,
-                MediaStore.Images.Media.DATE_TAKEN,
-                MediaStore.Images.Media.DATE_MODIFIED,
-                MediaStore.Images.Media.DATE_ADDED
+                MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.MIME_TYPE,
+                video ? MediaStore.Video.Media.DATE_TAKEN : MediaStore.Images.Media.DATE_TAKEN,
+                MediaStore.MediaColumns.DATE_MODIFIED, MediaStore.MediaColumns.DATE_ADDED
         };
-        String where = "(( " + MediaStore.Images.Media.DATE_TAKEN + " >= ? AND " +
-                MediaStore.Images.Media.DATE_TAKEN + " <= ? ) OR (( " +
-                MediaStore.Images.Media.DATE_TAKEN + " IS NULL OR " +
-                MediaStore.Images.Media.DATE_TAKEN + " <= 0 ) AND " +
-                MediaStore.Images.Media.DATE_ADDED + " >= ?))";
-        if (Build.VERSION.SDK_INT >= 29) where += " AND " + MediaStore.Images.Media.IS_PENDING + "=0";
-        String[] args = {
-                Long.toString(cutoffMillis),
-                Long.toString(tomorrowMillis),
-                Long.toString(cutoffMillis / 1000L)
-        };
-        ContentResolver cr = context.getContentResolver();
-        try (Cursor cur = cr.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                columns, where, args, MediaStore.Images.Media.DATE_TAKEN + " DESC")) {
-            if (cur == null) return photos;
+        String dateColumn = video ? MediaStore.Video.Media.DATE_TAKEN :
+                MediaStore.Images.Media.DATE_TAKEN;
+        String where = "((" + dateColumn + " >= ? AND " + dateColumn +
+                " <= ?) OR ((" + dateColumn + " IS NULL OR " + dateColumn +
+                " <= 0) AND " + MediaStore.MediaColumns.DATE_ADDED + " >= ?))";
+        if (Build.VERSION.SDK_INT >= 29)
+            where += " AND " + MediaStore.MediaColumns.IS_PENDING + "=0";
+        String[] args = { Long.toString(cutoff), Long.toString(latest),
+                Long.toString(cutoff / 1000L) };
+        try (Cursor cur = context.getContentResolver().query(
+                collection, columns, where, args, dateColumn + " DESC")) {
+            if (cur == null) return;
             while (cur.moveToNext()) {
                 long id = cur.getLong(0), size = cur.getLong(2);
                 String mime = cur.getString(3);
                 if (size <= 0 || size > MAX_PHOTO_BYTES || mime == null ||
-                        !mime.startsWith("image/")) continue;
+                        !mime.startsWith(video ? "video/" : "image/")) continue;
                 long taken = cur.isNull(4) ? 0 : cur.getLong(4);
                 long modified = cur.isNull(5) ? 0 : cur.getLong(5);
                 long added = cur.isNull(6) ? 0 : cur.getLong(6) * 1000L;
                 long effective = taken > 0 ? taken : added;
-                if (!PhotoDateRange.within(effective, cutoffMillis, tomorrowMillis)) continue;
+                if (!PhotoDateRange.within(effective, cutoff, latest)) continue;
                 String filename = cur.getString(1);
-                if (filename == null || filename.trim().isEmpty()) filename = "Foto_" + id + ".jpg";
-                photos.add(new Photo(id,
-                        ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id),
+                if (filename == null || filename.trim().isEmpty())
+                    filename = (video ? "Video_" : "Foto_") + id + (video ? ".mp4" : ".jpg");
+                // Images and videos have independent MediaStore ID spaces.
+                // Negative video IDs keep existing SHA cache compatible.
+                long hashCacheId = video ? -1L - id : id;
+                items.add(new Photo(hashCacheId, ContentUris.withAppendedId(collection, id),
                         filename, mime, size, effective, modified));
             }
+        } catch (SecurityException e) {
+            throw new IllegalStateException("Acesso à " +
+                    (video ? "galeria de vídeos" : "galeria de fotografias") +
+                    " não autorizado.", e);
         }
-        return photos;
     }
 
     /** Receiver-only: write completed Nearby payload into MediaStore/Gallery. */
-    boolean saveNearbyPhoto(Uri receivedUri, String filename, String mime,
+    boolean saveNearbyMedia(Uri receivedUri, String filename, String mime,
                             long expectedBytes, long dateTaken, String sha256) throws IOException {
         if (receivedUri == null || expectedBytes <= 0 || expectedBytes > MAX_PHOTO_BYTES ||
-                mime == null || !mime.startsWith("image/") ||
+                mime == null || !(mime.startsWith("image/") || mime.startsWith("video/")) ||
                 sha256 == null || !sha256.matches("[a-f0-9]{64}")) {
-            throw new IOException("Metadados de fotografia inválidos.");
+            throw new IOException("Metadados de imagem ou vídeo inválidos.");
         }
         if (db.alreadyReceived(sha256)) return false;
         Destination destination = new Destination(filename, mime, dateTaken, sha256);
@@ -326,6 +351,13 @@ final class PhotoTransport {
         } finally {
             if (!finalized) destination.closeIfIncomplete();
         }
+    }
+
+    boolean saveNearbyPhoto(Uri receivedUri, String filename, String mime,
+                            long expectedBytes, long dateTaken, String sha256) throws IOException {
+        if (mime == null || !mime.startsWith("image/"))
+            throw new IOException("O método de fotografias não aceita vídeos");
+        return saveNearbyMedia(receivedUri, filename, mime, expectedBytes, dateTaken, sha256);
     }
 
     /** Latest successfully inserted gallery item, never an unfinished Nearby temp file. */
@@ -388,17 +420,24 @@ final class PhotoTransport {
         Destination(String originalName, String mime, long dateTaken, String hash) throws IOException {
             String clean = originalName.replaceAll("[^a-zA-Z0-9._-]", "_");
             if (clean.length() > 90) clean = clean.substring(clean.length() - 90);
-            if (clean.length() < 3) clean = "Foto.jpg";
+            if (clean.length() < 3) clean = mime.startsWith("video/") ? "Video.mp4" : "Foto.jpg";
             // Prevent filename collisions; keep camera's original name in the filename.
             String unique = hash.substring(0, 10) + "_" + clean;
+            boolean video = mime.startsWith("video/");
             if (Build.VERSION.SDK_INT >= 29) {
                 ContentValues values = new ContentValues();
-                values.put(MediaStore.Images.Media.DISPLAY_NAME, unique);
-                values.put(MediaStore.Images.Media.MIME_TYPE, mime);
-                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Remote PhotoBridge");
-                values.put(MediaStore.Images.Media.IS_PENDING, 1);
-                if (dateTaken > 0) values.put(MediaStore.Images.Media.DATE_TAKEN, dateTaken);
-                Uri created = context.getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, unique);
+                values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, (video ?
+                        Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES) +
+                        "/Remote PhotoBridge");
+                values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                if (dateTaken > 0)
+                    values.put(video ? MediaStore.Video.Media.DATE_TAKEN :
+                            MediaStore.Images.Media.DATE_TAKEN, dateTaken);
+                Uri created = context.getContentResolver().insert(video ?
+                        MediaStore.Video.Media.EXTERNAL_CONTENT_URI :
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
                 if (created == null) throw new IOException("Falhou a criação do ficheiro na galeria.");
                 uri = created;
                 file = null;
@@ -409,7 +448,9 @@ final class PhotoTransport {
                 }
                 output = tmp;
             } else {
-                File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Remote PhotoBridge");
+                File dir = new File(Environment.getExternalStoragePublicDirectory(video ?
+                        Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES),
+                        "Remote PhotoBridge");
                 if (!dir.exists() && !dir.mkdirs()) throw new IOException("Não foi possível criar a pasta das fotos.");
                 file = new File(dir, unique);
                 uri = null;
@@ -422,7 +463,7 @@ final class PhotoTransport {
             if (accept) {
                 if (uri != null) {
                     ContentValues v = new ContentValues();
-                    v.put(MediaStore.Images.Media.IS_PENDING, 0);
+                    v.put(MediaStore.MediaColumns.IS_PENDING, 0);
                     if (context.getContentResolver().update(uri, v, null, null) < 1)
                         throw new IOException("Não foi possível tornar visível a fotografia.");
                 } else MediaScannerConnection.scanFile(context, new String[]{file.getAbsolutePath()}, null, null);
