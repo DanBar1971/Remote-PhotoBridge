@@ -18,8 +18,8 @@ android {
         applicationId = "pt.remotephotobridge"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "1.0.0-alpha12"
+        versionCode = 100
+        versionName = "1.0.0"
     }
     signingConfigs {
         create("persistentAlpha") {
@@ -42,6 +42,11 @@ android {
         }
         release {
             isMinifyEnabled = false
+            // Signed with the SAME protected identity as alpha8+, so users can
+            // update in place. The CI refuses to publish if the key is missing.
+            if (alphaSigningFile.isFile) {
+                signingConfig = signingConfigs.getByName("persistentAlpha")
+            }
         }
     }
     compileOptions {
