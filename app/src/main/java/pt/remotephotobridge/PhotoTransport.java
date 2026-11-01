@@ -265,23 +265,26 @@ final class PhotoTransport {
     List<Photo> getMedia(int days, String mediaType) {
         if (!("photos".equals(mediaType) || "videos".equals(mediaType) ||
                 "both".equals(mediaType))) throw new IllegalArgumentException("Tipo de multimédia inválido");
+        // Zero is an explicit selection of all indexed gallery media, not a
+        // time range. Do not exclude old pictures because of DATE_TAKEN/ADDED.
+        boolean entireGallery = PhotoDateRange.isEntireGallery(days);
         long cutoffMillis = PhotoDateRange.startMillis(days, Calendar.getInstance());
         long latest = System.currentTimeMillis() + 86_400_000L;
         List<Photo> items = new ArrayList<>();
         if (!"videos".equals(mediaType)) {
             appendMedia(items, MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    false, cutoffMillis, latest);
+                    false, cutoffMillis, latest, entireGallery);
         }
         if (!"photos".equals(mediaType)) {
             appendMedia(items, MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                    true, cutoffMillis, latest);
+                    true, cutoffMillis, latest, entireGallery);
         }
         items.sort((a,b) -> Long.compare(b.dateTaken, a.dateTaken));
         return items;
     }
 
     private void appendMedia(List<Photo> items, Uri collection, boolean video,
-                             long cutoff, long latest) {
+                             long cutoff, long latest, boolean entireGallery) {
         String[] columns = {
                 MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME,
                 MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.MIME_TYPE,
@@ -290,15 +293,24 @@ final class PhotoTransport {
         };
         String dateColumn = video ? MediaStore.Video.Media.DATE_TAKEN :
                 MediaStore.Images.Media.DATE_TAKEN;
-        String where = "((" + dateColumn + " >= ? AND " + dateColumn +
+        // Older devices frequently have missing/incorrect DATE_TAKEN. A
+        // historical scan deliberately uses NO date predicate or arguments,
+        // so old photographs/videos are not silently ignored.
+        String where = entireGallery ? null :
+                "((" + dateColumn + " >= ? AND " + dateColumn +
                 " <= ?) OR ((" + dateColumn + " IS NULL OR " + dateColumn +
                 " <= 0) AND " + MediaStore.MediaColumns.DATE_ADDED + " >= ?))";
-        if (Build.VERSION.SDK_INT >= 29)
-            where += " AND " + MediaStore.MediaColumns.IS_PENDING + "=0";
-        String[] args = { Long.toString(cutoff), Long.toString(latest),
-                Long.toString(cutoff / 1000L) };
+        if (Build.VERSION.SDK_INT >= 29) {
+            where = (where == null ? "" : "(" + where + ") AND ") +
+                    MediaStore.MediaColumns.IS_PENDING + "=0";
+        }
+        String[] args = entireGallery ? null : new String[] {
+                Long.toString(cutoff), Long.toString(latest),
+                Long.toString(cutoff / 1000L)
+        };
         try (Cursor cur = context.getContentResolver().query(
-                collection, columns, where, args, dateColumn + " DESC")) {
+                collection, columns, where, args,
+                MediaStore.MediaColumns.DATE_ADDED + " DESC")) {
             if (cur == null) return;
             while (cur.moveToNext()) {
                 long id = cur.getLong(0), size = cur.getLong(2);
@@ -309,7 +321,7 @@ final class PhotoTransport {
                 long modified = cur.isNull(5) ? 0 : cur.getLong(5);
                 long added = cur.isNull(6) ? 0 : cur.getLong(6) * 1000L;
                 long effective = taken > 0 ? taken : added;
-                if (!PhotoDateRange.within(effective, cutoff, latest)) continue;
+                if (!entireGallery && !PhotoDateRange.within(effective, cutoff, latest)) continue;
                 String filename = cur.getString(1);
                 if (filename == null || filename.trim().isEmpty())
                     filename = (video ? "Video_" : "Foto_") + id + (video ? ".mp4" : ".jpg");
