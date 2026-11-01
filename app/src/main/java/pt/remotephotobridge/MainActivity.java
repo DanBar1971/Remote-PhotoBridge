@@ -296,8 +296,8 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         LinearLayout roleCard = card(root);
         roleCard.addView(text(PRINCIPAL.equals(role) ? "TELEMÓVEL PRINCIPAL" : "TELEMÓVEL SECUNDÁRIO", 17, ACCENT, true));
         roleCard.addView(note(PRINCIPAL.equals(role) ?
-                "Este telemóvel só recebe fotografias." :
-                "Este telemóvel só envia fotografias do período selecionado."));
+                "Este telemóvel só recebe fotografias e vídeos." :
+                "Este telemóvel só envia fotografias e vídeos do período selecionado."));
         roleCard.addView(note("Para alterar a função, abre Opções no menu principal."));
 
         LinearLayout stateCard = card(root);
@@ -367,7 +367,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         galleryButton.setVisibility(prefs.getBoolean("received_gallery_photo", false) ? View.VISIBLE : View.GONE);
         card.addView(galleryButton);
         card.addView(note("2. Confirma no ecrã o mesmo código de segurança apresentado no Secundário."));
-        card.addView(note("3. As fotografias recebidas são guardadas em Galeria → Pictures / Remote PhotoBridge. Os originais ficam no Secundário."));
+        card.addView(note("3. Fotos em Pictures / Remote PhotoBridge e vídeos em Movies / Remote PhotoBridge. Os originais ficam no Secundário."));
     }
 
     private void renderSecondary(LinearLayout root) {
@@ -541,7 +541,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
             hasTransferResult = true;
             currentTransferPercent = Math.max(0, Math.min(100, percent));
             currentTransferText = (sending ? "A enviar" : "A receber") +
-                    " · " + completed + "/" + total + " fotografias confirmadas" +
+                    " · " + completed + "/" + total + " ficheiros confirmados" +
                     (description == null || description.isEmpty() ? "" : "\n" + description);
             if (progressCard != null) progressCard.setVisibility(View.VISIBLE);
             if (progressBar != null) progressBar.setProgress(currentTransferPercent);
@@ -557,8 +557,9 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
             hasTransferResult = true;
             currentTransferPercent = 100;
             currentTransferText = (sending ? "Envio concluído!" : "Receção concluída!") +
-                    "\n" + total + " fotografias processadas · " + newPhotos +
-                    " novas · " + duplicates + " repetidas.";
+                    "\n" + total + " ficheiros processados · " + newPhotos +
+                    " novos · " + duplicates + " repetidos.";
+            if (retryButton != null) retryButton.setVisibility(View.GONE);
             if (progressCard != null) progressCard.setVisibility(View.VISIBLE);
             if (progressBar != null) progressBar.setProgress(100);
             if (percentView != null) percentView.setText("100%");
@@ -576,6 +577,8 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
             if (progressCard != null) progressCard.setVisibility(View.VISIBLE);
             if (progressDescription != null) progressDescription.setText(currentTransferText);
             if (transferNotifier != null) transferNotifier.failed(message);
+            if (retryButton != null && nearby != null)
+                retryButton.setVisibility(nearby.canRetry() ? View.VISIBLE : View.GONE);
         });
     }
 
@@ -668,9 +671,12 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
 
     @Override public void connected() {
         state(PRINCIPAL.equals(role) ?
-                "LIGADO. Principal pronto para receber e guardar fotografias na Galeria." :
-                "LIGADO. Escolhe o período e sincroniza as fotografias.");
-
+                "LIGADO. Principal pronto para receber fotos e vídeos." :
+                "LIGADO. Escolhe o período e sincroniza fotos e vídeos.");
+        runOnUiThread(() -> {
+            if (retryButton != null && nearby != null)
+                retryButton.setVisibility(nearby.canRetry() ? View.VISIBLE : View.GONE);
+        });
     }
 
     @Override public void photoReceived(Uri galleryUri) {
@@ -686,7 +692,11 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     }
 
     @Override public void disconnected() {
-        state("Ligação terminada. Podes voltar a iniciar o emparelhamento.");
+        state("Ligação interrompida. A procurar automaticamente o outro telemóvel...");
+        runOnUiThread(() -> {
+            if (retryButton != null && nearby != null)
+                retryButton.setVisibility(nearby.canRetry() ? View.VISIBLE : View.GONE);
+        });
     }
 
     /**
