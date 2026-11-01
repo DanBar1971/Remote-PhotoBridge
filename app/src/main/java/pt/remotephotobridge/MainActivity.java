@@ -85,6 +85,8 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private TextView statusView, detailsView;
     private LinearLayout peersView;
     private Spinner periodView;
+    private Spinner mediaTypeView;
+    private Button retryButton;
     private Button galleryButton;
     private Uri lastReceivedGalleryUri;
     private TransferNotifier transferNotifier;
@@ -282,6 +284,8 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         // Nearby remains connected until the user explicitly disconnects.
         peersView = null;
         periodView = null;
+        mediaTypeView = null;
+        retryButton = null;
         galleryButton = null;
         progressCard = null;
         progressBar = null;
@@ -304,7 +308,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         // Always visible while a transfer is in progress, even if the user
         // navigates away and returns to Partilhar.
         progressCard = card(root);
-        progressCard.addView(text("PROGRESSO DAS FOTOGRAFIAS", 15, ACCENT, true));
+        progressCard.addView(text("PROGRESSO DA TRANSFERÊNCIA", 15, ACCENT, true));
         percentView = text(currentTransferPercent + "%", 30, TEXT, true);
         percentView.setGravity(Gravity.CENTER);
         progressCard.addView(percentView);
@@ -378,9 +382,17 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         card.addView(peersView);
 
         LinearLayout send = card(root);
-        send.addView(text("2. ESCOLHER FOTOGRAFIAS", 18, TEXT, true));
+        send.addView(text("2. ESCOLHER FOTOGRAFIAS E VÍDEOS", 18, TEXT, true));
         send.addView(note("Para tirar várias fotos com a Câmara normal, regressa ao menu principal. Depois escolhe Hoje para as sincronizar."));
-        send.addView(note("Só serão enviadas fotografias do período indicado. A opção inicial é Hoje. Nunca envia toda a galeria."));
+        send.addView(note("Escolhe o tipo de ficheiros e o período. Hoje é a opção inicial."));
+        ArrayAdapter<String> choices = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item,
+                new String[]{"Fotografias e vídeos", "Só fotografias", "Só vídeos"});
+        choices.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        mediaTypeView = new Spinner(this);
+        mediaTypeView.setAdapter(choices);
+        mediaTypeView.setSelection(0);
+        send.addView(mediaTypeView);
         ArrayAdapter<String> periods = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, PERIODS) {
             @Override public View getView(int position, View convertView, ViewGroup parent) {
                 TextView item = (TextView) super.getView(position, convertView, parent);
@@ -404,11 +416,35 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         // the user chose a broader period during an earlier sync.
         periodView.setSelection(0);
         send.addView(periodView);
-        send.addView(button("VER FOTOS DESTE PERÍODO", false, () ->
+        send.addView(button("VER FOTOS E VÍDEOS DESTE PERÍODO", false, () ->
                 withGalleryPermission(false)));
-        send.addView(button("SINCRONIZAR FOTOGRAFIAS", true, () ->
+        send.addView(button("SINCRONIZAR FOTOS E VÍDEOS", true, () ->
                 withGalleryPermission(true)));
-        send.addView(note("Antes de enviar, a aplicação mostra quantas fotografias encontrou. As fotos antigas ficam de fora e as já recebidas não são duplicadas."));
+        retryButton = button("REPETIR TRANSFERÊNCIA INTERROMPIDA", false, () -> {
+            if (nearby == null || !nearby.canRetry()) {
+                state("Não há transferência interrompida.");
+            } else if (!nearby.isConnected()) {
+                state("Liga novamente ao Principal e depois repete a transferência.");
+            } else new AlertDialog.Builder(this)
+                .setTitle("Repetir transferência?")
+                .setMessage("O Principal ignora os ficheiros já recebidos, sem criar cópias.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Repetir", (dialog, which) ->
+                    withNotificationPermission(() -> nearby.retryUnfinished()))
+                .show();
+        });
+        retryButton.setVisibility(nearby != null && nearby.canRetry() ? View.VISIBLE : View.GONE);
+        send.addView(retryButton);
+        send.addView(note("Fotografias em Pictures, vídeos em Movies na Galeria do Principal. Sem duplicar ficheiros."));
+    }
+
+    private String selectedMediaType() {
+        if (mediaTypeView == null) return "both";
+        switch (mediaTypeView.getSelectedItemPosition()) {
+            case 1: return "photos";
+            case 2: return "videos";
+            default: return "both";
+        }
     }
 
     private int selectedDays() {
@@ -419,50 +455,60 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     }
 
     private void withGalleryPermission(boolean send) {
-        List<String> permissions = new ArrayList<>();
+        String type = selectedMediaType();
+        List<String> needed = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= 33) {
-            permissions.add(Manifest.permission.READ_MEDIA_IMAGES);
+            if (!"videos".equals(type)) needed.add(Manifest.permission.READ_MEDIA_IMAGES);
+            if (!"photos".equals(type)) needed.add(Manifest.permission.READ_MEDIA_VIDEO);
             if (Build.VERSION.SDK_INT >= 34)
-                permissions.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED);
-        } else {
-            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+                needed.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED);
+        } else needed.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+        boolean all = true;
+        for (String p : needed) {
+            if (Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED.equals(p)) continue;
+            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) all = false;
         }
-        boolean granted = false;
-        for (String p : permissions) if (checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED) granted = true;
-        if (granted) preview(send);
-        else askPermissions(permissions.toArray(new String[0]), () -> preview(send));
+        if (all) preview(send);
+        else askPermissions(needed.toArray(new String[0]), () -> preview(send));
     }
 
     private void preview(boolean send) {
         int days = selectedDays();
-        state("A contar fotografias do período selecionado...");
+        String type = selectedMediaType();
+        state("A procurar fotografias e vídeos do período...");
         executor.execute(() -> {
             try {
-                List<PhotoTransport.Photo> selection = photos.getPhotos(days);
-                long total = 0;
-                for (PhotoTransport.Photo photo : selection) total += photo.size;
-                final long bytes = total;
+                List<PhotoTransport.Photo> selected = photos.getMedia(days, type);
+                long bytes = 0L;
+                int images = 0, videos = 0;
+                for (PhotoTransport.Photo item : selected) {
+                    bytes += item.size;
+                    if (item.mime.startsWith("video/")) videos++; else images++;
+                }
+                final long size = bytes;
+                final int photoCount = images, videoCount = videos;
                 runOnUiThread(() -> {
-                    String summary = selection.size() + " fotografias (" +
-                            String.format(Locale.getDefault(), "%.1f", bytes / 1048576.0) +
-                            " MB) em: " + PERIODS[periodIndex(days)] + ".";
+                    String summary = photoCount + " fotografias, " + videoCount +
+                            " vídeos (" + String.format(Locale.getDefault(),
+                            "%.1f", size / 1048576.0) + " MB) em " +
+                            PERIODS[periodIndex(days)] + ".";
                     state(summary);
-                    if (!send || selection.isEmpty()) return;
+                    if (!send || selected.isEmpty()) return;
                     if (nearby == null || !nearby.isConnected()) {
-                        state("Escolhe primeiro o Principal e confirma o código de segurança.");
+                        state("Liga ao Principal antes de enviar.");
                         return;
                     }
                     new AlertDialog.Builder(this)
                         .setTitle("Confirmar envio?")
-                        .setMessage(summary + "\n\nSó estas fotografias serão enviadas. Os originais não serão apagados.")
+                        .setMessage(summary + "\n\nVídeos grandes podem demorar. Não serão apagados originais.")
                         .setNegativeButton("Cancelar", null)
-                        .setPositiveButton("Enviar " + selection.size(), (d,w) -> {
-                            withNotificationPermission(() -> nearby.sendPhotos(selection));
-                        })
+                        .setPositiveButton("Enviar " + selected.size(), (d,w) ->
+                            withNotificationPermission(() -> nearby.sendPhotos(selected)))
                         .show();
                 });
             } catch (Exception e) {
-                state("Erro a consultar Galeria: " + e.getMessage());
+                state("Erro a consultar Galeria: " + e.getMessage() +
+                        ". Verifica acesso a fotos e vídeos em Opções.");
             }
         });
     }
@@ -569,6 +615,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         afterPermission = null;
         if (next == null) return;
         boolean gallery = Arrays.asList(permissions).contains(Manifest.permission.READ_MEDIA_IMAGES)
+                || Arrays.asList(permissions).contains(Manifest.permission.READ_MEDIA_VIDEO)
                 || Arrays.asList(permissions).contains(Manifest.permission.READ_EXTERNAL_STORAGE);
         if (gallery) {
             boolean partial = false;
@@ -576,7 +623,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
                 if (grants.length > i && grants[i] == PackageManager.PERMISSION_GRANTED) partial = true;
             }
             if (partial) next.run();
-            else state("Não foi dado acesso às fotografias. A autorização é necessária para enviar.");
+            else state("Não foi dado acesso a fotografias ou vídeos.");
         } else {
             boolean all = grants.length == permissions.length;
             for (int i = 0; i < permissions.length; i++) if (grants[i] != PackageManager.PERMISSION_GRANTED) all = false;
@@ -815,7 +862,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
                 () -> withNearbyPermissions(() ->
                         Toast.makeText(this, "Permissões para Nearby confirmadas.", Toast.LENGTH_SHORT).show())));
         if (SECONDARY.equals(role))
-            access.addView(button("PEDIR ACESSO ÀS FOTOGRAFIAS", false,
+            access.addView(button("PEDIR ACESSO A FOTOGRAFIAS E VÍDEOS", false,
                     this::requestGalleryAccessOnly));
 
         LinearLayout about = card(root);
@@ -885,6 +932,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         List<String> permissions = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= 33) {
             permissions.add(Manifest.permission.READ_MEDIA_IMAGES);
+            permissions.add(Manifest.permission.READ_MEDIA_VIDEO);
             if (Build.VERSION.SDK_INT >= 34) permissions.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED);
         } else {
             permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE);
