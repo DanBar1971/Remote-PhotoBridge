@@ -1,4 +1,4 @@
-# Remote PhotoBridge — Android 1.0.3
+# Remote PhotoBridge — Android 1.0.4
 
 Aplicação Android para **fotografar, consultar a Galeria e transferir fotos locais** entre dois telemóveis, sem Internet, SIM, conta Google para sincronização ou ligação ao mesmo router.
 
@@ -40,9 +40,9 @@ Não existem pagamentos dentro da aplicação.
 
 ## APK de produção e atualizações
 
-**Versão 1.0.3 (versionCode 103)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
+**Versão 1.0.4 (versionCode 104)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
 
-O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.3.apk` na release estável `v1.0.3`. Não publica se o certificado não corresponder ou estiver ausente.
+O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.4.apk` na release estável `v1.0.4`. Não publica se o certificado não corresponder ou estiver ausente.
 
 Os testes automáticos de datas e compilação não substituem a validação física da abertura das apps Câmara/Galeria em diferentes fabricantes.
 
@@ -81,3 +81,20 @@ Ao regressar ao menu **Partilhar** durante a sessão, a barra conserva o último
 - Progresso percentual e notificações continuam a funcionar para ambos os tipos de ficheiro.
 
 A nova versão precisa de validação real em diferentes Androids e com vídeos grandes. Uma ligação Nearby não garante utilizar sempre Wi-Fi; o transporte escolhido automaticamente pode variar conforme o equipamento.
+
+## Novo em 1.0.4 — estabilidade Wi-Fi e diagnóstico de velocidade
+
+Em **Opções → Ligação e Velocidade** escolher:
+
+- **Estável (recomendado, padrão):** envia a preferência `ConnectionType.NON_DISRUPTIVE` ao Google Nearby nos dois lados, para evitar que a negociação altere o Wi-Fi normal do router. Esta proteção pode deixar alguns dispositivos em canais mais lentos (por exemplo Bluetooth), dependendo do hardware. **Não garante impedir o fabricante ou Android de desligar o rádio.**
+- **Velocidade máxima (experimental):** usa `ConnectionType.DISRUPTIVE`, dando ao Nearby liberdade para procurar maior débito, mas pode desligar temporariamente a associação Wi-Fi ao router. Selecionar apenas quando se aceita esse efeito.
+
+Configurar o mesmo modo nos dois equipamentos. A preferência só é aplicada ao próximo emparelhamento. Bluetooth e Wi-Fi continuam necessários; nenhuma opção exige Internet.
+
+Ao enviar, a aplicação diferencia **a calcular SHA-256** (leitura integral do ficheiro local, sem tráfego) de **a enviar** (payload Nearby). Durante a transferência apresenta médias em MB/s: *sessão* (inclui espera e cálculos) e *ficheiro* (bytes efetivos pelo Nearby desde o início do ficheiro). Em **Partilhar → Diagnóstico e Opções → Estado do Rádio Wi-Fi**, verifica se o rádio está realmente desligado ou se o Nearby apenas perdeu a ligação ao outro telemóvel.
+
+Existe uma proteção temporária `PARTIAL_WAKE_LOCK` enquanto uma transferência real está ativa, libertada no final ou falha, para reduzir a suspensão da CPU. **Não força o Wi-Fi a ligar e não impede toda a gestão de bateria dos fabricantes.** Para uma comparação justa testar o mesmo ficheiro/posição com Estável vs Velocidade máxima, e anotar a taxa de MB/s e o estado do Wi-Fi após uma falha.
+
+Em **Partilhar**, a escolha dos tipos aparece como **TUDO (fotografias + vídeos)**, **SÓ FOTOGRAFIAS** ou **SÓ VÍDEOS**. É independente da escolha de *Hoje* ou dos últimos 3/7/14/30 dias. A opção Tudo significa ambos os formatos **dentro do intervalo de datas selecionado**, não a galeria histórica inteira.
+
+Conselho de teste: durante transferências grandes, manter ecrã ligado e app visível, desativar restrições de bateria para a Remote PhotoBridge no Android se necessário. A ligação ao router pode ajudar, mas o Nearby escolhe o transporte automaticamente e não garante que todo o tráfego passe pelo router.
