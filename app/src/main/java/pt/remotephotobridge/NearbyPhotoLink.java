@@ -200,8 +200,12 @@ final class NearbyPhotoLink {
                 busy = false;
                 endpoint = null;
                 releaseSenderFile();
-                listener.state("Ligação terminada. Volta a procurar ou a receber.");
+                listener.state("Ligação interrompida. A procurar automaticamente o outro telemóvel...");
                 listener.disconnected();
+                // Restart the correct Nearby discovery role after an unexpected
+                // disconnect. Android still asks for pairing confirmation; no
+                // unattended or silent transfer is attempted.
+                if (receivingMode) receive(); else search();
             }
         }
     };
@@ -284,7 +288,8 @@ final class NearbyPhotoLink {
                         .put("hash", hash);
                 activeOffer = offer.getString("id");
                 activePhoto = p;
-                listener.state("A verificar " + (position + 1) + "/" + queue.size() + ": " + p.name);
+                listener.state("A calcular a assinatura de " + (position + 1) + "/" +
+                        queue.size() + ": " + p.name + ". Vídeos grandes podem demorar.");
                 sendControl(offer);
             } catch (Exception e) {
                 abort("Não foi possível ler a fotografia: " + e.getMessage());
