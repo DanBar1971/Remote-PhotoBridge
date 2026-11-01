@@ -103,7 +103,7 @@ jobs:
             fi
             gh release upload "$tag" "$apk"
           else
-            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Remote PhotoBridge 1.0.1" --notes "Remote PhotoBridge 1.0.1: Opções → Aspeto permite escolher Claro, Escuro ou Automático (seguir Android). Escolha guardada por telemóvel e aplicada ao menu, Partilhar, cartões, botões, formulários, diálogos e barras do sistema. Mantém Nearby, Câmara/Galeria nativas e sincronização por datas. APK release sem debug, versionCode 101, assinado pela mesma chave fixa para instalar por cima da versão anterior sem desinstalar." --latest
+            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Remote PhotoBridge 1.0.1" --notes "Remote PhotoBridge 1.0.1: Opções → Aspeto permite escolher Claro, Escuro ou Automático (seguir Android). Escolha guardada por telemóvel e aplicada ao menu, Partilhar, cartões, botões, formulários, diálogos e barras do sistema. Inclui também Opções → Atualizações, com consulta da última release estável do GitHub e download direto do APK quando disponível. Mantém Nearby, Câmara/Galeria nativas e sincronização por datas. APK release sem debug, versionCode 101, assinado pela mesma chave fixa para instalar por cima da versão anterior sem desinstalar." --latest
           fi
           gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$apk"
           echo "Release de produção publicada e APK confirmado em:"
