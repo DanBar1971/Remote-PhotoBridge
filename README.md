@@ -1,4 +1,4 @@
-# Remote PhotoBridge — Android 1.0.4
+# Remote PhotoBridge — Android 1.0.5
 
 Aplicação Android para **fotografar, consultar a Galeria e transferir fotos locais** entre dois telemóveis, sem Internet, SIM, conta Google para sincronização ou ligação ao mesmo router.
 
@@ -19,7 +19,7 @@ Aplicação Android para **fotografar, consultar a Galeria e transferir fotos lo
 
 O transporte utiliza Google Nearby Connections (como a SaúdePrática), que gere automaticamente Bluetooth e Wi-Fi sem ligação ao router. Requer os serviços Google Play instalados e as permissões necessárias, mas não dados móveis.
 
-**Não existe opção de enviar toda a galeria.** As datas são filtradas no Secundário por `MediaStore.DATE_TAKEN` (ou `DATE_ADDED` quando ausente), antes da transmissão.
+**Hoje continua a ser o valor inicial, mas agora existe TODA A GALERIA**, uma escolha explícita que inclui imagens e vídeos de qualquer ano. Quando se escolhe um período de dias, a app filtra as datas por `MediaStore.DATE_TAKEN` (ou `DATE_ADDED` quando ausente), antes da transmissão.
 
 ## Câmara e Galeria
 
@@ -40,9 +40,9 @@ Não existem pagamentos dentro da aplicação.
 
 ## APK de produção e atualizações
 
-**Versão 1.0.4 (versionCode 104)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
+**Versão 1.0.5 (versionCode 105)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
 
-O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.4.apk` na release estável `v1.0.4`. Não publica se o certificado não corresponder ou estiver ausente.
+O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.5.apk` na release estável `v1.0.5`. Não publica se o certificado não corresponder ou estiver ausente.
 
 Os testes automáticos de datas e compilação não substituem a validação física da abertura das apps Câmara/Galeria em diferentes fabricantes.
 
@@ -98,3 +98,15 @@ Existe uma proteção temporária `PARTIAL_WAKE_LOCK` enquanto uma transferênci
 Em **Partilhar**, a escolha dos tipos aparece como **TUDO (fotografias + vídeos)**, **SÓ FOTOGRAFIAS** ou **SÓ VÍDEOS**. É independente da escolha de *Hoje* ou dos últimos 3/7/14/30 dias. A opção Tudo significa ambos os formatos **dentro do intervalo de datas selecionado**, não a galeria histórica inteira.
 
 Conselho de teste: durante transferências grandes, manter ecrã ligado e app visível, desativar restrições de bateria para a Remote PhotoBridge no Android se necessário. A ligação ao router pode ajudar, mas o Nearby escolhe o transporte automaticamente e não garante que todo o tráfego passe pelo router.
+
+## Novidade na 1.0.5 — TODA A GALERIA
+
+No Secundário, em **Partilhar**, o primeiro seletor continua a definir os formatos: **TUDO (fotos + vídeos)**, **SÓ FOTOGRAFIAS** ou **SÓ VÍDEOS**. No segundo seletor — **período** — acrescentou-se, depois de **Últimos 30 dias**, **TODA A GALERIA (sem limite de data)**.
+
+Esta nova escolha pesquisa todos os itens de fotografias e vídeos **indexados e acessíveis ao Android**, sem o filtro de datas que excluía as galerias de um ano ou mais. Para os períodos de Hoje/3/7/14/30 dias, o comportamento anterior mantém-se. **Hoje continua a ser o padrão** sempre que se abre o ecrã.
+
+A pesquisa é executada fora do ecrã principal e mostra previamente **quantidade de fotografias, vídeos e tamanho total em MB**. É obrigatória a confirmação explícita antes de iniciar uma cópia integral, com aviso de consumo de espaço, bateria e duração, e não há eliminação automática de originais. O protocolo aceita lotes até 200 000 ficheiros; acima disso o utilizador deve selecionar períodos menores. Fotos e vídeos repetidos continuam identificados pelo SHA-256. No Principal, as imagens são guardadas em Pictures/Remote PhotoBridge e os vídeos em Movies/Remote PhotoBridge.
+
+**Atenção aos acessos:** no Android 14+, uma permissão apenas para fotografias selecionadas não permite catalogar toda a biblioteca. Para esta opção a app solicita permissão de leitura total para os tipos selecionados; se continuar parcial, direciona para as permissões nas Definições. Fotografias/vídeos ainda não indexados, mantidos apenas na nuvem ou com ficheiros inacessíveis não são transferidos. Ficheiros individuais têm o limite técnico atual de 12 GiB.
+
+Esta atualização 1.0.5 continua a usar Nearby Connections, as opções de rede Estável/Rápida e a assinatura de produção fixa da versão anterior, permitindo atualizar diretamente por cima.
