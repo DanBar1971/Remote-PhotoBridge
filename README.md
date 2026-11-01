@@ -120,3 +120,9 @@ Esta atualização 1.0.5 continua a usar Nearby Connections, as opções de rede
 A contagem de bytes globais **inclui ficheiros repetidos confirmados**, mesmo quando já existem no Principal e não precisam de ser transferidos outra vez. Representa o volume do lote já processado e o que falta processar, não necessariamente o tráfego efetivo pela rede. Cada ficheiro transferido mostra separadamente os bytes transmitidos e os que faltam. MB/GB são unidades decimais (1 MB = 1 000 000 bytes).
 
 Mantém a mesma assinatura de produção para atualizar a v1.0.5 diretamente por cima sem desinstalar.
+
+## Ajuste adicional de desempenho 1.0.6
+
+A negociação Nearby tem três modos documentados: **Estável** (NON_DISRUPTIVE), **Equilibrado** (BALANCED) e **Velocidade máxima** (DISRUPTIVE). Estável não altera Wi-Fi/Bluetooth mas pode limitar a largura de banda em alguns Androids. Equilibrado permite alterar a ligação apenas se necessário, procurando canais rápidos para vídeo. Velocidade máxima pode desligar temporariamente o Wi-Fi do router. A app mantém o modo Estável anterior até o utilizador selecionar outro; em ambos os telemóveis deve ser escolhido o mesmo modo e confirmado um novo emparelhamento.
+
+Em lotes com vídeos de pelo menos 200 MB e modo Estável, a confirmação alerta para um possível gargalo. **Durante o cálculo SHA-256**, a app mostra quantos bytes locais já analisou sem contabilizá-los como enviados. A transmissão via Nearby inicia apenas após o cálculo do hash. O desempenho depende do transporte e do hardware e estas alterações não garantem acelerar todos os pares de telemóveis.
