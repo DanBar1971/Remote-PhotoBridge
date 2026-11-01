@@ -545,6 +545,16 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
                               "pode demorar muito e exigir bastante espaço no Principal. " +
                               "Confirma que ambos os telemóveis têm bateria e espaço livres."
                             : "\n\nVídeos grandes podem demorar.";
+                    boolean largeStableBatch = videoCount > 0 && videoSize >= 200_000_000L &&
+                            TransferNetworkMode.potentiallySlowForLargeVideos(
+                                prefs.getString("network_mode", TransferNetworkMode.STABLE));
+                    if (largeStableBatch) {
+                        caution += "\n\nAVISO DE VELOCIDADE: o modo ESTÁVEL pode usar " +
+                                "um canal muito lento para vídeos grandes. " +
+                                "Para testar EQUILIBRADO, altera o modo em OPÇÕES nos " +
+                                "dois telemóveis e liga novamente antes de enviar. " +
+                                "Não vou mudar o Wi-Fi durante este envio.";
+                    }
                     new AlertDialog.Builder(this)
                         .setTitle(entireGallery ? "Enviar TODA A GALERIA?" : "Confirmar envio?")
                         .setMessage(summary + caution + "\nOs originais nunca serão apagados.")
@@ -887,11 +897,15 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         String networkChoice = TransferNetworkMode.normalize(
                 prefs.getString("network_mode", TransferNetworkMode.STABLE));
         network.addView(note("Modo atual: " + TransferNetworkMode.label(networkChoice)));
-        network.addView(note("Estável (recomendado): evita que o Nearby altere o Wi-Fi do router. Pode ficar mais lento se não houver um canal Wi-Fi direto."));
-        network.addView(button("ESTÁVEL · NÃO INTERROMPER WI-FI", 
+        network.addView(note("Estável: preserva o Wi-Fi e o Bluetooth. Pode limitar a transferência de vídeos grandes a um canal mais lento."));
+        network.addView(button("ESTÁVEL · PRESERVAR WI-FI",
                 TransferNetworkMode.STABLE.equals(networkChoice),
                 () -> setNetworkMode(TransferNetworkMode.STABLE)));
-        network.addView(note("Velocidade máxima: permite ao Nearby escolher um canal mais rápido, mas pode desligar temporariamente a ligação ao router."));
+        network.addView(note("Equilibrado: deixa o Nearby escolher um canal Wi-Fi rápido quando possível, alterando os rádios apenas se necessário."));
+        network.addView(button("EQUILIBRADO · RECOMENDADO PARA VÍDEOS",
+                TransferNetworkMode.BALANCED.equals(networkChoice),
+                () -> setNetworkMode(TransferNetworkMode.BALANCED)));
+        network.addView(note("Velocidade máxima: dá mais liberdade para acelerar, mas pode desligar temporariamente a ligação ao router."));
         network.addView(button("VELOCIDADE MÁXIMA · EXPERIMENTAL",
                 TransferNetworkMode.FAST.equals(networkChoice),
                 () -> setNetworkMode(TransferNetworkMode.FAST)));
