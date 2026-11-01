@@ -3,11 +3,15 @@ package pt.remotephotobridge;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Build;
+import android.os.SystemClock;
+import android.net.wifi.WifiManager;
 import android.os.ParcelFileDescriptor;
 
 import com.google.android.gms.nearby.Nearby;
 import com.google.android.gms.nearby.connection.AdvertisingOptions;
 import com.google.android.gms.nearby.connection.ConnectionInfo;
+import com.google.android.gms.nearby.connection.ConnectionOptions;
+import com.google.android.gms.nearby.connection.ConnectionType;
 import com.google.android.gms.nearby.connection.ConnectionLifecycleCallback;
 import com.google.android.gms.nearby.connection.ConnectionResolution;
 import com.google.android.gms.nearby.connection.ConnectionsClient;
@@ -59,6 +63,22 @@ final class NearbyPhotoLink {
     private static final String SERVICE = "pt.remotephotobridge.nearby.photos.v1";
     private static final Strategy STRATEGY = Strategy.P2P_POINT_TO_POINT;
     private static final long MAX_MEDIA_BYTES = 12L * 1024 * 1024 * 1024;
+    private static final String PREFS = "photobridge_options";
+
+    private int connectionType() {
+        String chosen = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("network_mode", TransferNetworkMode.STABLE);
+        return TransferNetworkMode.allowDisruptiveUpgrade(chosen) ?
+                ConnectionType.DISRUPTIVE : ConnectionType.NON_DISRUPTIVE;
+    }
+
+    private String wirelessState() {
+        WifiManager wifi = (WifiManager) context.getApplicationContext()
+                .getSystemService(Context.WIFI_SERVICE);
+        return wifi == null ? "rádio Wi-Fi indisponível" :
+                wifi.isWifiEnabled() ? "Wi-Fi ligado" : "Wi-Fi DESLIGADO";
+    }
+
     private final Context context;
     private final ConnectionsClient connections;
     private final PhotoTransport photos;
@@ -78,6 +98,7 @@ final class NearbyPhotoLink {
     private List<PhotoTransport.Photo> queue = new ArrayList<>();
     private int position, saved, skipped;
     private long totalBytes, acknowledgedBytes, currentPayloadBytes;
+    private long transferStartMillis, lastNetworkEventMillis;
     private long activePayloadId = -1L;
     private int receivedCount, receivedNew, receivedDuplicates, receiverTotal;
     private long receiverExpectedBytes, receiverAcknowledgedBytes, receiverInFlightBytes;
@@ -104,7 +125,8 @@ final class NearbyPhotoLink {
         receivingMode = true;
         listener.state("Principal visível. No Secundário toca em Procurar.");
         connections.startAdvertising("PhotoBridge · " + Build.MODEL, SERVICE, lifecycle,
-                new AdvertisingOptions.Builder().setStrategy(STRATEGY).build())
+                new AdvertisingOptions.Builder().setStrategy(STRATEGY)
+                        .setConnectionType(connectionType()).setLowPower(false).build())
                 .addOnFailureListener(e -> listener.state("Falha ao anunciar Principal: " + e.getMessage()));
     }
 
@@ -128,7 +150,9 @@ final class NearbyPhotoLink {
         }
         connecting = true;
         listener.state("A pedir ligação a " + endpoints.get(id) + "...");
-        connections.requestConnection("PhotoBridge · " + Build.MODEL, id, lifecycle)
+        connections.requestConnection("PhotoBridge · " + Build.MODEL, id, lifecycle,
+                        new ConnectionOptions.Builder()
+                            .setConnectionType(connectionType()).setLowPower(false).build())
                 .addOnFailureListener(e -> {
                     connecting = false;
                     listener.state("Falha de ligação: " + e.getMessage());
@@ -200,7 +224,8 @@ final class NearbyPhotoLink {
                 busy = false;
                 endpoint = null;
                 releaseSenderFile();
-                listener.state("Ligação interrompida. A procurar automaticamente o outro telemóvel...");
+                listener.state("Ligação interrompida (" + wirelessState() +
+                        "). A procurar automaticamente o outro telemóvel...");
                 listener.disconnected();
                 // Restart the correct Nearby discovery role after an unexpected
                 // disconnect. Android still asks for pairing confirmation; no
@@ -235,6 +260,8 @@ final class NearbyPhotoLink {
         busy = true;
         saved = skipped = position = 0;
         acknowledgedBytes = currentPayloadBytes = 0;
+        transferStartMillis = SystemClock.elapsedRealtime();
+        lastNetworkEventMillis = transferStartMillis;
         activePayloadId = -1L;
         lastProgressPercent = lastProgressDone = -1;
         queue = new ArrayList<>(selected);
@@ -243,7 +270,9 @@ final class NearbyPhotoLink {
             if (p.size > 0 && Long.MAX_VALUE - totalBytes >= p.size)
                 totalBytes += p.size;
         }
-        listener.state("A preparar " + queue.size() + " fotografias do período selecionado...");
+        listener.state("A preparar " + queue.size() + " ficheiros. " +
+                "Modo rede: " + (connectionType() == ConnectionType.DISRUPTIVE ?
+                "Velocidade máxima" : "Estável, preservar Wi-Fi") + ".");
         reportProgress(true, false, "A preparar envio...");
         try {
             sendControl(json("start").put("count", queue.size()).put("bytes", totalBytes));
@@ -278,7 +307,13 @@ final class NearbyPhotoLink {
         final PhotoTransport.Photo p = queue.get(position);
         worker.execute(() -> {
             try {
+                long hashStarted = SystemClock.elapsedRealtime();
+                listener.state("A calcular SHA-256 de " + p.name +
+                        " (" + (p.size / (1024 * 1024)) + " MB); ainda não está a enviar...");
                 final String hash = photos.photoHash(p);
+                long hashElapsed = Math.max(1, SystemClock.elapsedRealtime() - hashStarted);
+                listener.state("Hash concluído em " + (hashElapsed / 1000) +
+                        " s. A pedir confirmação de duplicado...");
                 JSONObject offer = json("offer")
                         .put("id", UUID.randomUUID().toString())
                         .put("name", p.name)
@@ -288,8 +323,8 @@ final class NearbyPhotoLink {
                         .put("hash", hash);
                 activeOffer = offer.getString("id");
                 activePhoto = p;
-                listener.state("A calcular a assinatura de " + (position + 1) + "/" +
-                        queue.size() + ": " + p.name + ". Vídeos grandes podem demorar.");
+                listener.state("Preparado " + (position + 1) + "/" +
+                        queue.size() + ": " + p.name);
                 sendControl(offer);
             } catch (Exception e) {
                 abort("Não foi possível ler a fotografia: " + e.getMessage());
@@ -338,7 +373,9 @@ final class NearbyPhotoLink {
             if (update.getStatus() == PayloadTransferUpdate.Status.FAILURE ||
                     update.getStatus() == PayloadTransferUpdate.Status.CANCELED) {
                 if (currentSenderFile || currentReceiverFile)
-                    abort("Ficheiro interrompido. Podes repetir sem duplicar fotografias.");
+                    abort("Falha Nearby (" + update.getStatus() + ", " +
+                            (update.getBytesTransferred() / 1048576L) + " MB enviados, " +
+                            wirelessState() + "). Podes repetir sem duplicar.");
                 return;
             }
             if (update.getStatus() == PayloadTransferUpdate.Status.IN_PROGRESS ||
@@ -521,7 +558,13 @@ final class NearbyPhotoLink {
         if (percent != lastProgressPercent || confirmed != lastProgressDone || finished) {
             lastProgressPercent = percent;
             lastProgressDone = confirmed;
-            listener.transferProgress(sender, percent, confirmed, count, detail);
+            String extra = "";
+            if (sender && transferStartMillis > 0 && done + inflight > 0) {
+                long elapsed = Math.max(1L, SystemClock.elapsedRealtime() - transferStartMillis);
+                double speed = ((done + inflight) / 1048576.0) / (elapsed / 1000.0);
+                extra = String.format(java.util.Locale.ROOT, " · média %.2f MB/s", speed);
+            }
+            listener.transferProgress(sender, percent, confirmed, count, detail + extra);
         }
     }
 
