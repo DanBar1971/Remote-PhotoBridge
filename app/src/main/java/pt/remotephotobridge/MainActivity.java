@@ -406,10 +406,8 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         send.addView(periodView);
         send.addView(button("VER FOTOS DESTE PERÍODO", false, () ->
                 withGalleryPermission(false)));
-        send.addView(button("SINCRONIZAR FOTOGRAFIAS", true, () -> {
-            askNotificationPermissionIfNeeded();
-            withGalleryPermission(true);
-        }));
+        send.addView(button("SINCRONIZAR FOTOGRAFIAS", true, () ->
+                withGalleryPermission(true)));
         send.addView(note("Antes de enviar, a aplicação mostra quantas fotografias encontrou. As fotos antigas ficam de fora e as já recebidas não são duplicadas."));
     }
 
@@ -458,7 +456,10 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
                         .setTitle("Confirmar envio?")
                         .setMessage(summary + "\n\nSó estas fotografias serão enviadas. Os originais não serão apagados.")
                         .setNegativeButton("Cancelar", null)
-                        .setPositiveButton("Enviar " + selection.size(), (d,w) -> nearby.sendPhotos(selection))
+                        .setPositiveButton("Enviar " + selection.size(), (d,w) -> {
+                            askNotificationPermissionIfNeeded();
+                            nearby.sendPhotos(selection);
+                        })
                         .show();
                 });
             } catch (Exception e) {
