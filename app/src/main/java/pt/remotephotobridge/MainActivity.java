@@ -53,7 +53,7 @@ import java.util.concurrent.Executors;
  * User flow copied from the working SaúdePrática Nearby synchronization:
  * Principal advertises (only receive), Secundário discovers and sends.
  * Authentication digits must be verified on BOTH phones.
- * Date selection lives only on the Secondary. Default: TODAY, never all photos.
+ * Date selection lives only on the Secondary. Default is TODAY; the full gallery is opt-in.
  */
 public final class MainActivity extends Activity implements NearbyPhotoLink.Listener {
     private int BG = Color.rgb(14, 23, 38);
