@@ -58,6 +58,7 @@ final class NearbyPhotoLink {
 
     private static final String SERVICE = "pt.remotephotobridge.nearby.photos.v1";
     private static final Strategy STRATEGY = Strategy.P2P_POINT_TO_POINT;
+    private static final long MAX_MEDIA_BYTES = 12L * 1024 * 1024 * 1024;
     private final Context context;
     private final ConnectionsClient connections;
     private final PhotoTransport photos;
@@ -81,6 +82,9 @@ final class NearbyPhotoLink {
     private int receivedCount, receivedNew, receivedDuplicates, receiverTotal;
     private long receiverExpectedBytes, receiverAcknowledgedBytes, receiverInFlightBytes;
     private volatile boolean receiverSessionActive;
+    private boolean peerSupportsVideo;
+    private List<PhotoTransport.Photo> retrySelection = new ArrayList<>();
+    private boolean pendingRetry;
     private int lastProgressPercent = -1;
     private int lastProgressDone = -1;
     private volatile String activeOffer;
@@ -176,6 +180,9 @@ final class NearbyPhotoLink {
                 connected = true;
                 connections.stopAdvertising();
                 connections.stopDiscovery();
+                peerSupportsVideo = false;
+                try { sendControl(json("hello").put("video", true).put("protocol", 2)); }
+                catch (Exception ignored) { }
                 listener.state("LIGADO com código de segurança confirmado.");
                 listener.connected();
             } else {
@@ -210,9 +217,17 @@ final class NearbyPhotoLink {
             return;
         }
         if (selected.isEmpty()) {
-            listener.state("Não há fotografias no período escolhido.");
+            listener.state("Não foram encontrados ficheiros no período escolhido.");
             return;
         }
+        for (PhotoTransport.Photo file : selected) {
+            if (file.mime.startsWith("video/") && !peerSupportsVideo) {
+                listener.state("Para enviar vídeos, atualiza também o Principal para a versão 1.0.3 ou superior.");
+                return;
+            }
+        }
+        retrySelection = new ArrayList<>(selected);
+        pendingRetry = true;
         busy = true;
         saved = skipped = position = 0;
         acknowledgedBytes = currentPayloadBytes = 0;
@@ -242,6 +257,8 @@ final class NearbyPhotoLink {
                 sendControl(json("finish").put("count", total)
                         .put("saved", saved).put("skipped", skipped));
                 reportProgress(true, true, "Envio concluído.");
+                pendingRetry = false;
+                retrySelection.clear();
                 listener.transferFinished(true, saved, skipped, total);
                 listener.state("CONCLUÍDO: " + saved + " novas na galeria do Principal; " +
                         skipped + " já existentes (" + total + " selecionadas).");
@@ -345,7 +362,13 @@ final class NearbyPhotoLink {
     private void handleControl(JSONObject cmd) throws Exception {
         String type = cmd.getString("type");
         String id = cmd.optString("id", "");
-        if ("start".equals(type) && receivingMode) {
+        if ("hello".equals(type)) {
+            peerSupportsVideo = cmd.optBoolean("video", false) &&
+                    cmd.optInt("protocol", 0) >= 2;
+            listener.state(peerSupportsVideo ?
+                    "Dispositivo compatível com fotografias e vídeos." :
+                    "Dispositivo compatível apenas com fotografias.");
+        } else if ("start".equals(type) && receivingMode) {
             int count = cmd.getInt("count");
             long bytes = cmd.getLong("bytes");
             if (count < 1 || count > 200000 || bytes < 0)
@@ -362,8 +385,9 @@ final class NearbyPhotoLink {
             String sha = cmd.getString("hash");
             long bytes = cmd.getLong("size");
             String mime = cmd.getString("mime");
-            if (!sha.matches("[a-f0-9]{64}") || bytes < 1 || bytes > 2_000_000_000L ||
-                    !mime.startsWith("image/") || id.length() > 100 || id.isEmpty()) {
+            if (!sha.matches("[a-f0-9]{64}") || bytes < 1 || bytes > MAX_MEDIA_BYTES ||
+                    !(mime.startsWith("image/") || (mime.startsWith("video/") && peerSupportsVideo)) ||
+                    id.length() > 100 || id.isEmpty()) {
                 listener.state("Recebidos metadados inválidos.");
                 return;
             }
@@ -443,7 +467,7 @@ final class NearbyPhotoLink {
             try {
                 temporary = file.asFile() == null ? null : file.asFile().asUri();
                 if (temporary == null) throw new IOException("Nearby não forneceu o ficheiro recebido.");
-                saved = photos.saveNearbyPhoto(temporary, metadata.getString("name"),
+                saved = photos.saveNearbyMedia(temporary, metadata.getString("name"),
                         metadata.getString("mime"), metadata.getLong("size"),
                         metadata.getLong("taken"), metadata.getString("hash"));
                 if (saved) {
@@ -451,8 +475,10 @@ final class NearbyPhotoLink {
                     // end of a potentially lengthy multi-photo transfer.
                     listener.photoReceived(photos.latestReceivedPhotoUri());
                 }
-                listener.state(saved ? "Fotografia guardada na Galeria do Principal." :
-                        "Fotografia repetida; não foi novamente guardada.");
+                listener.state(saved ? (metadata.optString("mime").startsWith("video/") ?
+                        "Vídeo guardado na Galeria do Principal." :
+                        "Fotografia guardada na Galeria do Principal.") :
+                        "Ficheiro repetido; não foi novamente guardado.");
             } catch (Exception e) {
                 error = e.getMessage() == null ? "Falha ao importar na galeria" : e.getMessage();
                 listener.state("Não foi possível guardar fotografia: " + error);
@@ -518,7 +544,10 @@ final class NearbyPhotoLink {
         receiverSessionActive = false;
         releaseSenderFile();
         currentPayloadBytes = receiverInFlightBytes = 0L;
-        if (wasTransfer) listener.transferInterrupted(sending, error);
+        if (wasTransfer) {
+            if (sending && !retrySelection.isEmpty()) pendingRetry = true;
+            listener.transferInterrupted(sending, error);
+        }
         listener.state("TRANSFERÊNCIA PARADA: " + error);
     }
 
@@ -532,6 +561,15 @@ final class NearbyPhotoLink {
         activePayloadId = -1L;
     }
 
+    boolean canRetry() { return !receivingMode && pendingRetry && !retrySelection.isEmpty(); }
+
+    void retryUnfinished() {
+        if (!canRetry()) { listener.state("Não há transferência pendente para repetir."); return; }
+        if (!connected) { listener.state("Liga novamente ao Principal; os ficheiros já recebidos serão ignorados."); return; }
+        if (busy) { listener.state("Já está a transferir."); return; }
+        sendPhotos(new ArrayList<>(retrySelection));
+    }
+
     void close() {
         if (busy || receiverSessionActive)
             abort("A ligação foi terminada antes da confirmação final.");
@@ -542,6 +580,7 @@ final class NearbyPhotoLink {
         connecting = false;
         busy = false;
         endpoint = null;
+        peerSupportsVideo = false;
         releaseSenderFile();
         endpoints.clear();
         offers.clear();
