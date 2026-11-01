@@ -1,4 +1,4 @@
-# Remote PhotoBridge — Android 1.0.1
+# Remote PhotoBridge — Android 1.0.2
 
 Aplicação Android para **fotografar, consultar a Galeria e transferir fotos locais** entre dois telemóveis, sem Internet, SIM, conta Google para sincronização ou ligação ao mesmo router.
 
@@ -40,9 +40,9 @@ Não existem pagamentos dentro da aplicação.
 
 ## APK de produção e atualizações
 
-**Versão 1.0.1 (versionCode 101)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
+**Versão 1.0.2 (versionCode 102)** — compilada com `assembleRelease` (sem debug) e assinada com **a mesma chave privada fixa das versões alpha8–alpha12**. Instala por cima da alpha12 sem desinstalar nem perder a função Principal/Secundário.
 
-O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.1.apk` na release estável `v1.0.1`. Não publica se o certificado não corresponder ou estiver ausente.
+O workflow `.github/workflows/android-apk.yml` executa os testes unitários, compila o APK de produção, verifica o SHA-256 do certificado de assinatura e publica `Remote-PhotoBridge-v1.0.2.apk` na release estável `v1.0.2`. Não publica se o certificado não corresponder ou estiver ausente.
 
 Os testes automáticos de datas e compilação não substituem a validação física da abertura das apps Câmara/Galeria em diferentes fabricantes.
 
@@ -61,3 +61,11 @@ Versão de produção, assinatura fixa preservada, **atualização por cima da 1
 Em **Opções → Atualizações**, a aplicação mostra a versão instalada, consulta a última release **estável** publicada no GitHub e compara os números de versão. Se houver atualização, aparece **DESCARREGAR ATUALIZAÇÃO**, que abre o APK oficial do GitHub no navegador para instalar por cima, mediante confirmação do Android. A consulta é feita quando se abre Opções pela primeira vez na sessão ou ao tocar em **PROCURAR ATUALIZAÇÕES**. Não descarrega nem instala silenciosamente. A consulta requer Internet, mas a transferência de fotografias por Nearby continua totalmente offline. Em caso de falha de ligação, a app mostra o erro sem interromper a sincronização.
 
 Apenas as versões não experimentais do GitHub Releases são consideradas. A assinatura do APK e o `versionCode` continuam iguais/compatíveis com as versões estáveis anteriores.
+
+## Progresso e notificações (1.0.2)
+
+Em **Partilhar**, os dois Androids apresentam uma barra com a **percentagem real (0–100%)** e quantas fotografias foram confirmadas, tanto ao **enviar** como ao **receber**. O Nearby fornece os bytes efetivamente transferidos para cada fotografia; a percentagem global contabiliza os bytes confirmados e os bytes em curso. Fotografias já existentes são marcadas como processadas sem duplicar. **Os 100% só aparecem quando todas as fotografias foram verificadas e confirmadas.**
+
+O Android mostra também uma notificação discreta de progresso com a percentagem, e uma notificação final **“Fotografias enviadas!”** ou **“Fotografias recebidas!”**, com número de novas e repetidas. Se uma transferência for interrompida, a notificação indica o erro em vez de anunciar conclusão. O modo de notificação funciona sem Internet nem SIM. Em Android 13+ a aplicação solicita a permissão opcional de notificações; recusá-la não impede a barra na app nem a transferência.
+
+Ao regressar ao menu **Partilhar** durante a sessão, a barra conserva o último progresso. Continua a ser uma aplicação que trabalha com os telemóveis ligados; não é prometido um serviço permanente em segundo plano. A versão 1.0.2 mantém o mesmo certificado protegido da 1.0.1 e instala por cima.
