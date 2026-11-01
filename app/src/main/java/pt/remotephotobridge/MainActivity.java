@@ -95,6 +95,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
     private int currentTransferPercent;
     private String currentTransferText = "";
     private boolean notificationPromptAttempted;
+    private Runnable pendingNotificationAction;
     private boolean receiving;
     private String currentPage = "home";
     private UpdateChecker.Result latestUpdate;
@@ -356,8 +357,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         card.addView(button("RECEBER FOTOGRAFIAS", true, () -> withNearbyPermissions(() -> {
             if (nearby == null) return;
             receiving = true;
-            askNotificationPermissionIfNeeded();
-            nearby.receive();
+            withNotificationPermission(() -> nearby.receive());
         })));
         galleryButton = button("ABRIR GALERIA DO TELEMÓVEL", false, this::openSystemGallery);
         galleryButton.setVisibility(prefs.getBoolean("received_gallery_photo", false) ? View.VISIBLE : View.GONE);
@@ -457,8 +457,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
                         .setMessage(summary + "\n\nSó estas fotografias serão enviadas. Os originais não serão apagados.")
                         .setNegativeButton("Cancelar", null)
                         .setPositiveButton("Enviar " + selection.size(), (d,w) -> {
-                            askNotificationPermissionIfNeeded();
-                            nearby.sendPhotos(selection);
+                            withNotificationPermission(() -> nearby.sendPhotos(selection));
                         })
                         .show();
                 });
@@ -473,12 +472,19 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         return 0;
     }
 
-    private void askNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < 33 || notificationPromptAttempted ||
+    /**
+     * Request permission once at user-initiated send/receive, THEN start.
+     * Denial never blocks the actual transfer: only system notifications.
+     */
+    private void withNotificationPermission(Runnable action) {
+        if (Build.VERSION.SDK_INT < 33 ||
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
-                        PackageManager.PERMISSION_GRANTED) return;
+                        PackageManager.PERMISSION_GRANTED || notificationPromptAttempted) {
+            action.run();
+            return;
+        }
         notificationPromptAttempted = true;
-        // Declining this permission must NEVER prevent the actual transfer.
+        pendingNotificationAction = action;
         requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},
                 NOTIFICATION_PERMISSION_CODE);
     }
@@ -552,6 +558,12 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
 
     @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] grants) {
         super.onRequestPermissionsResult(code, permissions, grants);
+        if (code == NOTIFICATION_PERMISSION_CODE) {
+            Runnable nextNotificationAction = pendingNotificationAction;
+            pendingNotificationAction = null;
+            if (nextNotificationAction != null) nextNotificationAction.run();
+            return;
+        }
         if (code != PERMISSION_CODE) return;
         Runnable next = afterPermission;
         afterPermission = null;
