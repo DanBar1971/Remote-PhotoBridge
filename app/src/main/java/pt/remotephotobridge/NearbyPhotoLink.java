@@ -99,7 +99,7 @@ final class NearbyPhotoLink {
     private List<PhotoTransport.Photo> queue = new ArrayList<>();
     private int position, saved, skipped;
     private long totalBytes, acknowledgedBytes, currentPayloadBytes;
-    private long transferStartMillis, lastNetworkEventMillis;
+    private long transferStartMillis, currentFileStartedMillis;
     private long activePayloadId = -1L;
     private int receivedCount, receivedNew, receivedDuplicates, receiverTotal;
     private long receiverExpectedBytes, receiverAcknowledgedBytes, receiverInFlightBytes;
@@ -264,7 +264,7 @@ final class NearbyPhotoLink {
         saved = skipped = position = 0;
         acknowledgedBytes = currentPayloadBytes = 0;
         transferStartMillis = SystemClock.elapsedRealtime();
-        lastNetworkEventMillis = transferStartMillis;
+        currentFileStartedMillis = 0L;
         activePayloadId = -1L;
         lastProgressPercent = lastProgressDone = -1;
         queue = new ArrayList<>(selected);
@@ -345,6 +345,7 @@ final class NearbyPhotoLink {
                 Payload data = Payload.fromFile(activeDescriptor);
                 activePayloadId = data.getId();
                 currentPayloadBytes = 0L;
+                currentFileStartedMillis = SystemClock.elapsedRealtime();
                 sendControl(json("file").put("id", offerId).put("payload", data.getId()));
                 connections.sendPayload(endpoint, data)
                         .addOnFailureListener(e -> abort("Envio de fotografia falhou: " + e.getMessage()));
@@ -569,7 +570,14 @@ final class NearbyPhotoLink {
             if (sender && transferStartMillis > 0 && done + inflight > 0) {
                 long elapsed = Math.max(1L, SystemClock.elapsedRealtime() - transferStartMillis);
                 double speed = ((done + inflight) / 1048576.0) / (elapsed / 1000.0);
-                extra = String.format(java.util.Locale.ROOT, " · média %.2f MB/s", speed);
+                extra = String.format(java.util.Locale.ROOT, " · sessão %.2f MB/s", speed);
+                if (currentFileStartedMillis > 0 && inflight > 0) {
+                    long fileElapsed = Math.max(1L,
+                            SystemClock.elapsedRealtime() - currentFileStartedMillis);
+                    double networkSpeed = (inflight / 1048576.0) / (fileElapsed / 1000.0);
+                    extra += String.format(java.util.Locale.ROOT,
+                            " · ficheiro %.2f MB/s", networkSpeed);
+                }
             }
             listener.transferProgress(sender, percent, confirmed, count, detail + extra);
         }
@@ -615,6 +623,7 @@ final class NearbyPhotoLink {
         activeOffer = null;
         activePhoto = null;
         activePayloadId = -1L;
+        currentFileStartedMillis = 0L;
     }
 
     boolean canRetry() { return !receivingMode && pendingRetry && !retrySelection.isEmpty(); }
