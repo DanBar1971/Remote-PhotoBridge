@@ -335,6 +335,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         advanced.addView(button("DIAGNÓSTICO E OPÇÕES  ▾", false, () ->
                 diagnostics.setVisibility(diagnostics.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE)));
         advanced.addView(diagnostics);
+        diagnostics.addView(button("ESTADO DO RÁDIO WI-FI", false, this::showRadioDiagnostics));
         diagnostics.addView(button("TERMINAR LIGAÇÃO", false, () -> {
             if (nearby != null) nearby.close();
             receiving = false;
@@ -387,7 +388,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         send.addView(note("Escolhe o tipo de ficheiros e o período. Hoje é a opção inicial."));
         ArrayAdapter<String> choices = new ArrayAdapter<>(this,
                 android.R.layout.simple_spinner_item,
-                new String[]{"Fotografias e vídeos", "Só fotografias", "Só vídeos"});
+                new String[]{"TUDO (fotografias + vídeos)", "SÓ FOTOGRAFIAS", "SÓ VÍDEOS"});
         choices.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         mediaTypeView = new Spinner(this);
         mediaTypeView.setAdapter(choices);
@@ -704,6 +705,20 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
      * viewer. Do not upload anything to Google Photos or external services.
      */
 
+    private void showRadioDiagnostics() {
+        android.net.wifi.WifiManager wifi = (android.net.wifi.WifiManager)
+                getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        String radio = wifi == null ? "não disponível" :
+                wifi.isWifiEnabled() ? "ligado" : "DESLIGADO";
+        String link = nearby != null && nearby.isConnected() ?
+                "Nearby ligado" : "Nearby sem ligação";
+        String mode = TransferNetworkMode.label(prefs.getString(
+                "network_mode", TransferNetworkMode.STABLE));
+        state("Diagnóstico: rádio Wi-Fi " + radio +
+                "; " + link + "; modo configurado: " + mode +
+                ". A ligação ao router é independente da ligação Nearby.");
+    }
+
     private void showHome() {
         currentPage = "home";
         LinearLayout root = screen();
@@ -821,6 +836,21 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         appearance.addView(button("AUTOMÁTICO · SEGUIR ANDROID", ThemeMode.SYSTEM.equals(selectedAppearance),
                 () -> setAppearance(ThemeMode.SYSTEM)));
 
+        LinearLayout network = card(root);
+        network.addView(text("LIGAÇÃO E VELOCIDADE", 17, ACCENT, true));
+        String networkChoice = TransferNetworkMode.normalize(
+                prefs.getString("network_mode", TransferNetworkMode.STABLE));
+        network.addView(note("Modo atual: " + TransferNetworkMode.label(networkChoice)));
+        network.addView(note("Estável (recomendado): evita que o Nearby altere o Wi-Fi do router. Pode ficar mais lento se não houver um canal Wi-Fi direto."));
+        network.addView(button("ESTÁVEL · NÃO INTERROMPER WI-FI", 
+                TransferNetworkMode.STABLE.equals(networkChoice),
+                () -> setNetworkMode(TransferNetworkMode.STABLE)));
+        network.addView(note("Velocidade máxima: permite ao Nearby escolher um canal mais rápido, mas pode desligar temporariamente a ligação ao router."));
+        network.addView(button("VELOCIDADE MÁXIMA · EXPERIMENTAL",
+                TransferNetworkMode.FAST.equals(networkChoice),
+                () -> setNetworkMode(TransferNetworkMode.FAST)));
+        network.addView(note("Escolhe o mesmo modo nos dois telemóveis. A nova opção só é aplicada ao emparelhar novamente. A transferência não precisa de Internet."));
+
         LinearLayout updates = card(root);
         updates.addView(text("ATUALIZAÇÕES", 17, ACCENT, true));
         updates.addView(note("Versão instalada: " + installedVersion()));
@@ -931,6 +961,18 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
                 });
             }
         });
+    }
+
+    private void setNetworkMode(String selected) {
+        prefs.edit().putString("network_mode", TransferNetworkMode.normalize(selected)).apply();
+        boolean linked = nearby != null && nearby.isConnected();
+        showOptions();
+        if (linked) {
+            new AlertDialog.Builder(this)
+                .setTitle("Modo de ligação guardado")
+                .setMessage("O modo será aplicado na próxima ligação. A ligação atual foi mantida para não interromper transferências.")
+                .setPositiveButton("OK", null).show();
+        }
     }
 
     private void openAndroidAppSettings() {
