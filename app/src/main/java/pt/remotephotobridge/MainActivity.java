@@ -657,7 +657,7 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
 
         LinearLayout updates = card(root);
         updates.addView(text("ATUALIZAÇÕES", 17, ACCENT, true));
-        updates.addView(note("Versão instalada: " + BuildConfig.VERSION_NAME));
+        updates.addView(note("Versão instalada: " + installedVersion()));
         updateStatusView = note(updateMessage);
         updates.addView(updateStatusView);
         updates.addView(button("PROCURAR ATUALIZAÇÕES", false, this::checkForUpdates));
@@ -714,6 +714,14 @@ public final class MainActivity extends Activity implements NearbyPhotoLink.List
         about.addView(button("ACERCA DA REMOTE PHOTOBRIDGE", false, this::showAbout));
         about.addView(button("☕ OFERECER UM CAFÉ", false, this::showDonate));
         about.addView(button("✉ CONTACTAR SUPORTE", false, this::showSupport));
+    }
+
+    private String installedVersion() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "indisponível";
+        }
     }
 
     private void checkForUpdates() {
